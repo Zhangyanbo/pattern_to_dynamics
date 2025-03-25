@@ -252,7 +252,7 @@ class TwoMoonsDataset(Dataset):
     This dataset creates points in a 2D space arranged in two half-moon shapes.
     """
     
-    def __init__(self, num_samples=1000, noise=0.1, vertical_gap=0.0):
+    def __init__(self, num_samples=5000, noise=0.1, vertical_gap=0.0):
         """
         Initialize the TwoMoonsDataset.
         
