@@ -35,8 +35,9 @@ class Diffusion(nn.Module):
         return self.mlp(input) + x
     
     def score(self, x, t:float=0.1):
-        batch_size = x.shape[0]
-        t = torch.ones(batch_size).to(x.device) * t
+        if isinstance(t, float):
+            batch_size = x.shape[0]
+            t = torch.ones(batch_size).to(x.device) * t
         eps_pred = self.eps_predictor(x, t.unsqueeze(-1))
         return -eps_pred
     
