@@ -1,5 +1,5 @@
 from train_diffusion import Diffusion
-from distributions import TwoPeaksDataset, RingDataset, LorenzDataset
+from distributions import TwoPeaksDataset, RingDataset, LorenzDataset, TwoMoonsDataset
 import torch
 from utils import VPJBatchNorm, integrate_rk4, div_estimate
 import torch.nn as nn
@@ -16,7 +16,11 @@ def load_model(name):
         dataset = RingDataset()
     elif name == 'lorenz':
         dataset = LorenzDataset()
-    
+    elif name == 'two_moons':
+        dataset = TwoMoonsDataset()
+    else:
+        raise ValueError(f"Model {name} not supported")
+
     score_model = Diffusion(dim=dataset.dim)
     if name == 'two_peaks':
         score_model.load_state_dict(torch.load('./models/two_peaks_ddim.pth'))
@@ -24,6 +28,9 @@ def load_model(name):
         score_model.load_state_dict(torch.load('./models/ring_ddim.pth'))
     elif name == 'lorenz':
         score_model.load_state_dict(torch.load('./models/lorenz_ddim.pth'))
+    elif name == 'two_moons':
+        score_model.load_state_dict(torch.load('./models/two_moons_ddim.pth'))
+        
     return score_model, dataset
 
 
