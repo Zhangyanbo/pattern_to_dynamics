@@ -243,3 +243,98 @@ class TwoPeaksDataset(Dataset):
             2D data point [x, y] at index idx
         """
         return self.time_series[idx]
+
+
+class TwoMoonsDataset(Dataset):
+    """
+    Dataset that generates samples from a two moons distribution.
+    
+    This dataset creates points in a 2D space arranged in two half-moon shapes.
+    """
+    
+    def __init__(self, num_samples=1000, noise=0.1, vertical_gap=0.0):
+        """
+        Initialize the TwoMoonsDataset.
+        
+        Args:
+            num_samples (int): Number of data points to generate
+            noise (float): Standard deviation of Gaussian noise added to the points
+            vertical_gap (float): Vertical distance between the two moons (smaller values bring moons closer)
+        """
+        super(TwoMoonsDataset, self).__init__()
+        self.num_samples = num_samples
+        self.noise = noise
+        self.vertical_gap = vertical_gap
+        self.dim = 2
+        self.time_series = self._generate_two_moons()
+    
+    def _generate_two_moons(self):
+        """
+        Generate points arranged in two half-moon shapes.
+        
+        Returns:
+            torch.Tensor: Tensor of shape [num_samples, 2] containing the generated points
+        """
+        # Determine how many samples to generate for each moon
+        samples_per_moon = self.num_samples // 2
+        
+        # Generate the first moon
+        points_1 = self._generate_moon_points(0, samples_per_moon)
+        
+        # Generate the second moon
+        points_2 = self._generate_moon_points(1, self.num_samples - samples_per_moon)
+        
+        # Combine the samples
+        return torch.cat([points_1, points_2], dim=0)
+    
+    def _generate_moon_points(self, moon_idx, num_points):
+        """
+        Generate points for one half-moon shape.
+        
+        Args:
+            moon_idx (int): Index of the moon (0 or 1)
+            num_points (int): Number of points to generate
+            
+        Returns:
+            torch.Tensor: Tensor of shape [num_points, 2] containing points for one moon
+        """
+        # Generate angles from 0 to pi
+        angles = torch.linspace(0, torch.pi, num_points)
+        
+        # Create the moon shape using trigonometric functions
+        x = torch.cos(angles)
+        y = torch.sin(angles)
+        
+        # Create the points tensor
+        points = torch.stack([x, y], dim=1)
+        
+        # Apply transformations to create the two moons shape with opposite orientations
+        half_gap = self.vertical_gap / 2
+        if moon_idx == 1:
+            # Second moon: flip horizontally and vertically, shift right and down
+            points[:, 0] = 1.0 - points[:, 0]  # Flip horizontally and shift right
+            points[:, 1] = -points[:, 1] - half_gap  # Flip vertically and shift down
+        else:
+            # First moon: just shift up
+            points[:, 1] = points[:, 1] + half_gap  # Shift up
+        
+        # Add Gaussian noise
+        points = points + torch.randn_like(points) * self.noise
+        
+        return points
+    
+    def __len__(self):
+        """Return the number of points in the dataset."""
+        return self.num_samples
+    
+    def __getitem__(self, idx):
+        """
+        Get a 2D data point at the specified index.
+        
+        Args:
+            idx: Index of the point
+        
+        Returns:
+            2D data point [x, y] at index idx
+        """
+        return self.time_series[idx]
