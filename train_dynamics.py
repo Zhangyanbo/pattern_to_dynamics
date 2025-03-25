@@ -84,7 +84,7 @@ class Flow(nn.Module):
         output = self.mlp(x)
         return output
 
-def train_dynamics(score_model, dataset, batch_size=2048, num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu'):
+def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu'):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     score_model.to(device)
@@ -119,27 +119,47 @@ def train_dynamics(score_model, dataset, batch_size=2048, num_samples=10, lr=1e-
 
     return flow, losses, div_losses, oth_losses
 
+def make_plot_folder(model):
+    if not os.path.exists(f'./figure/{model}'):
+        os.makedirs(f'./figure/{model}')
+    root_path = f'./figure/{model}'
+    return root_path
 
 if __name__ == '__main__':
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', type=str, default='two_peaks')
+    parser.add_argument('--num_epochs', type=int, default=1024)
+    parser.add_argument('--batch_size', type=int, default=2048)
+    parser.add_argument('--num_samples', type=int, default=10)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--weight_decay', type=float, default=1e-5)
+    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
+    args = parser.parse_args()
+
     # set random seed for reproducibility
     torch.manual_seed(0)
     np.random.seed(0)
 
-    score_model, dataset = load_model('two_peaks')
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    flow, losses, div_losses, oth_losses = train_dynamics(score_model, dataset, num_epochs=1024, device=device)
-    torch.save(flow.state_dict(), './models/two_peaks_flow.pth')
+    score_model, dataset = load_model(args.model)
+    device = torch.device(args.device)
+    flow, losses, div_losses, oth_losses = train_dynamics(score_model, dataset, **vars(args))
+    torch.save(flow.state_dict(), f'./models/{args.model}_flow.pth')
+
+    root_path = make_plot_folder(args.model)
 
     plt.plot(losses, label='total loss')
     plt.plot(div_losses, label='div loss')
     plt.plot(oth_losses, label='oth loss')
     plt.semilogy()
     plt.legend()
-    plt.savefig('./figure/two_peaks_dynamics_loss.png')
-    plt.savefig('./figure/two_peaks_dynamics_loss.pdf')
+    plt.savefig(os.path.join(root_path, 'loss.png'))
+    plt.savefig(os.path.join(root_path, 'loss.pdf'))
     plt.close()
 
     plot_flow(flow, score_model, DataLoader(dataset, batch_size=256, shuffle=True), device)
-    plt.savefig('./figure/two_peaks_dynamics_flow.png')
-    plt.savefig('./figure/two_peaks_dynamics_flow.pdf')
+    plt.savefig(os.path.join(root_path, 'flow.png'))
+    plt.savefig(os.path.join(root_path, 'flow.pdf'))
     plt.close()
