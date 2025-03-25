@@ -139,6 +139,7 @@ def train_dynamics(score_model, dataset, batch_size=2048, num_samples=10, lr=1e-
         acc_oth_loss = 0
         for x in dataloader:
             x = x.to(device)
+            x = x + torch.randn_like(x) * 0.1
             optimizer.zero_grad()
             div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, num_samples=10)
             loss = torch.mean(div ** 2)
