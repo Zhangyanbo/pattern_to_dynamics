@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from distributions import LorenzDataset, RingDataset, TwoPeaksDataset
+from distributions import LorenzDataset, RingDataset, TwoPeaksDataset, TwoMoonsDataset
 
 ## Model
 
@@ -126,6 +126,8 @@ if __name__ == "__main__":
     # set model: choose from lorenz, ring, two_peaks
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="lorenz")
+    parser.add_argument("--num_epochs", type=int, default=512)
+    parser.add_argument("--num_sample", type=int, default=1000)
     args = parser.parse_args()
     if args.model == "lorenz":
         dataset = LorenzDataset()
@@ -133,7 +135,12 @@ if __name__ == "__main__":
         dataset = RingDataset()
     elif args.model == "two_peaks":
         dataset = TwoPeaksDataset()
-    model, losses = train(dataset, num_epochs=512)
+    elif args.model == "two_moons":
+        dataset = TwoMoonsDataset()
+    else:
+        raise ValueError(f"Model {args.model} not supported")
+
+    model, losses = train(dataset, num_epochs=args.num_epochs)
     plot_losses(losses, args)
-    test_sample(model, dataset, args, num_sample=1000)
+    test_sample(model, dataset, args, num_sample=args.num_sample)
     save_model(model, args)
