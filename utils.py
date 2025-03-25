@@ -52,3 +52,40 @@ class VPJBatchNorm(nn.BatchNorm1d):
                 normalized = normalized * self.weight.view(1, -1, 1) + self.bias.view(1, -1, 1)
 
         return normalized
+
+
+def integrate_rk4(vf, pos, dt):
+    """
+    Performs one step of the 4th-order Runge-Kutta integration method.
+    
+    Args:
+        vf: A function that takes a position tensor and returns a velocity vector.
+        pos: The current position tensor.
+        dt: The time step for integration (dt).
+        
+    Returns:
+        The new position after one integration step.
+    """
+    k1 = vf(pos)
+    k2 = vf(pos + k1 * dt / 2)
+    k3 = vf(pos + k2 * dt / 2)
+    k4 = vf(pos + k3 * dt)
+    return pos + (k1 + 2 * k2 + 2 * k3 + k4) * dt / 6
+
+
+def _hutchinson_estimate(vjp_func, x, z):
+    vjp = vjp_func(z)[0]
+    return torch.einsum('nd, nd -> n', vjp, z)
+
+def hutchinson_estimate(model, x, num_samples=2):
+    output, vjp_func= torch.func.vjp(model, x)
+    z = torch.randn((num_samples, *x.shape), device=x.device)
+    est = torch.vmap(_hutchinson_estimate, (None, None, 0))(vjp_func, x, z)
+    return est.mean(dim=0), output
+
+def div_estimate(flow_model, score_model, x, num_samples=2):
+    with torch.no_grad():
+        s = score_model.score(x, t=0.1)
+    div_term, v = hutchinson_estimate(flow_model, x, num_samples=num_samples)
+    oth_term = torch.einsum('nd, nd -> n', v, s)
+    return div_term + oth_term, s, v, div_term, oth_term
