@@ -34,7 +34,7 @@ def load_model(name):
     return score_model, dataset
 
 
-def plot_flow(flow, score_model, dataloader, device):
+def plot_flow2d(flow, score_model, dataloader, device):
     # plot the flow
     x = torch.linspace(-3, 3, 20)
     y = torch.linspace(-3, 3, 20)
@@ -71,6 +71,85 @@ def plot_flow(flow, score_model, dataloader, device):
     plt.xlim(-3, 3)
     plt.ylim(-3, 3)
 
+def plot_flow3d(flow, score_model, dataloader, device):
+    """
+    Plot the flow in 3D space.
+    
+    Args:
+        flow: The flow model to visualize
+        score_model: The score model
+        dataloader: DataLoader containing the dataset
+        device: Device to run computations on
+    """
+    # Create 3D figure
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Get data samples
+    samples = next(iter(dataloader))
+    samples = samples.cpu()
+    
+    # Plot data points
+    ax.scatter(samples[:, 0], samples[:, 1], samples[:, 2], alpha=0.5, s=10)
+    
+    # Create grid for vector field
+    grid_size = 8
+    limit = 3
+    x = torch.linspace(-limit, limit, grid_size)
+    y = torch.linspace(-limit, limit, grid_size)
+    z = torch.linspace(-limit, limit, grid_size)
+    
+    X, Y, Z = torch.meshgrid(x, y, z, indexing='ij')
+    grid_points = torch.stack([X.flatten(), Y.flatten(), Z.flatten()], dim=1).to(device)
+    
+    # Compute vector field
+    flow.eval()
+    with torch.no_grad():
+        vectors = flow.forward(grid_points).cpu() * 0.025
+    
+    # Plot vector field (every few points to avoid overcrowding)
+    skip = 4
+    points = grid_points.cpu().numpy()
+    vecs = vectors.cpu().numpy()
+    ax.quiver(
+        points[::skip, 0], points[::skip, 1], points[::skip, 2],
+        vecs[::skip, 0], vecs[::skip, 1], vecs[::skip, 2],
+        length=0.5, normalize=True, alpha=0.25, color='black'
+    )
+    
+    # Plot trajectory
+    x0 = samples[0].unsqueeze(0).to(device)
+    trajectory = []
+    for i in range(500):
+        with torch.no_grad():
+            x0 = integrate_rk4(
+                lambda x: flow.forward(x) + score_model.score(x, t=0.1) * 0.0, 
+                x0, 
+                dt=0.1
+            )
+            trajectory.append(x0)
+    
+    trajectory = torch.cat(trajectory, dim=0).cpu().numpy()
+    ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], '-', alpha=1, linewidth=2, color='orange')
+    
+    # Set labels and title
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title('3D Flow Visualization')
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-3, 3)
+    ax.set_zlim(-3, 3)
+
+
+def plot_flow(flow, score_model, dataloader, device):
+    if flow.dim == 2:
+        plot_flow2d(flow, score_model, dataloader, device)
+    elif flow.dim == 3:
+        plot_flow3d(flow, score_model, dataloader, device)
+    else:
+        raise ValueError(f"Flow dimension {flow.dim} not supported")
+
 
 def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu', dim_hidden=64, noise=0.1, num_kernels=4, non_kernel=False):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -86,6 +165,8 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
     losses = []
     div_losses = []
     oth_losses = []
+    t = 0.05
+    print(f"Alpha.sqrt(): {score_model.alpha_t(torch.tensor(t, device=device)).sqrt().item()}")
 
     for epoch in tqdm(range(num_epochs)):
         acc_loss = 0
@@ -93,9 +174,8 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
         acc_oth_loss = 0
         for x in dataloader:
             x = x.to(device)
-            x = x + torch.randn_like(x) * noise
             optimizer.zero_grad()
-            div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, num_samples=num_samples)
+            div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, t, num_samples=num_samples)
             loss = torch.mean(div ** 2)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(flow.parameters(), max_norm=1.0)

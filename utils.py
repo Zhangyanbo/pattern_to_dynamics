@@ -83,9 +83,12 @@ def hutchinson_estimate(model, x, num_samples=2):
     est = torch.vmap(_hutchinson_estimate, (None, None, 0))(vjp_func, x, z)
     return est.mean(dim=0), output
 
-def div_estimate(flow_model, score_model, x, num_samples=2):
+def div_estimate(flow_model, score_model, x, t, num_samples=2):
+    num_batch = x.shape[0]
+    t = torch.ones((num_batch,), device=x.device) * t
+    xt, eps = score_model.diffuse(x, t)
     with torch.no_grad():
-        s = score_model.score(x, t=0.1)
-    div_term, v = hutchinson_estimate(flow_model, x, num_samples=num_samples)
+        s = score_model.score(xt, t)
+    div_term, v = hutchinson_estimate(flow_model, xt, num_samples=num_samples)
     oth_term = torch.einsum('nd, nd -> n', v, s)
     return div_term + oth_term, s, v, div_term, oth_term
