@@ -38,17 +38,22 @@ class Diffusion(nn.Module):
         if isinstance(t, float):
             batch_size = x.shape[0]
             t = torch.ones(batch_size).to(x.device) * t
+        alpha_t = self.alpha_t(t)
         eps_pred = self.eps_predictor(x, t.unsqueeze(-1))
-        return -eps_pred
+        return -eps_pred / (1 - alpha_t).sqrt()
     
     def forward(self, x, t):
         xt, eps = self.diffuse(x, t)
         eps_pred = self.eps_predictor(xt, t.unsqueeze(-1))
         return eps, eps_pred
     
-    def diffuse(self, x, t):
+    def alpha_t(self, t):
         t = (t * (self.num_steps - 1)).long()
         alpha_t = self.alpha(t)
+        return alpha_t
+
+    def diffuse(self, x, t):
+        alpha_t = self.alpha_t(t)
         eps = torch.randn_like(x)
         xt = alpha_t.sqrt() * x + (1 - alpha_t).sqrt() * eps
         return xt, eps
