@@ -267,6 +267,12 @@ class TwoMoonsDataset(Dataset):
         self.vertical_gap = vertical_gap
         self.dim = 2
         self.time_series = self._generate_two_moons()
+        self.time_series = self.normalize(self.time_series)
+    def normalize(self, time_series):
+        """Normalize the time series to have zero mean and unit variance."""
+        mean = time_series.mean(dim=0)
+        std = time_series.std(dim=0)
+        return (time_series - mean) / std
     
     def _generate_two_moons(self):
         """
