@@ -7,6 +7,7 @@ class Flow(nn.Module):
     def __init__(self, dim=2, dim_hidden=64):
         super(Flow, self).__init__()
         self.nonlinear = nn.SiLU()
+        self.dim = dim
         self.mlp = nn.Sequential(
             nn.Linear(dim, dim_hidden),
             VPJBatchNorm(dim_hidden),
@@ -30,6 +31,7 @@ class FlowKernel(nn.Module):
         super(FlowKernel, self).__init__()
         self.num_kernels = num_kernels
         self.nonlinear = nn.SiLU()
+        self.dim = dim
         self.mlp = nn.Sequential(
             nn.Linear(dim * (2 * num_kernels + 1), dim_hidden),
             VPJBatchNorm(dim_hidden),
@@ -83,6 +85,7 @@ class FlowAugmented(nn.Module):
         super(FlowAugmented, self).__init__()
         self.score_model = score_model
         self.nonlinear = nn.SiLU()
+        self.dim = dim
         self.mlp = nn.Sequential(
             nn.Linear(dim + score_model.dim, dim_hidden),
             VPJBatchNorm(dim_hidden),
