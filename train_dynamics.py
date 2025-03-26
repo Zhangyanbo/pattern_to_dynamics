@@ -72,13 +72,15 @@ def plot_flow(flow, score_model, dataloader, device):
     plt.ylim(-3, 3)
 
 
-def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu', dim_hidden=64, noise=0.1, num_kernels=4):
+def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu', dim_hidden=64, noise=0.1, num_kernels=4, non_kernel=False):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     score_model.to(device)
 
-    flow = FlowKernel(dim=dataset.dim, dim_hidden=dim_hidden, num_kernels=num_kernels)
-    # flow = Flow(dim=dataset.dim, dim_hidden=dim_hidden)
+    if non_kernel:
+        flow = Flow(dim=dataset.dim, dim_hidden=dim_hidden)
+    else:
+        flow = FlowKernel(dim=dataset.dim, dim_hidden=dim_hidden, num_kernels=num_kernels)
     flow.to(device)
     optimizer = torch.optim.Adam(flow.parameters(), lr=lr, weight_decay=weight_decay)
     losses = []
@@ -129,6 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument('--noise', type=float, default=0.1)
     parser.add_argument('--num_kernels', '-k', type=int, default=4)
+    parser.add_argument('--non_kernel', '-n', type=bool, default=False)
     args = parser.parse_args()
 
     # set random seed for reproducibility
