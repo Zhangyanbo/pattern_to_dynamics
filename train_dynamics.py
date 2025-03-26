@@ -30,7 +30,7 @@ def load_model(name):
         score_model.load_state_dict(torch.load('./models/lorenz_ddim.pth'))
     elif name == 'two_moons':
         score_model.load_state_dict(torch.load('./models/two_moons_ddim.pth'))
-        
+
     return score_model, dataset
 
 
@@ -55,7 +55,7 @@ def plot_flow(flow, score_model, dataloader, device):
             angles='xy', scale_units='xy', scale=0.2, alpha=0.5)
 
 
-    x0 = torch.Tensor([[1.5, 1.5]]).to(device)
+    x0 = samples[0].unsqueeze(0).to(device)
     trajectory = []
     for i in range(500):
         with torch.no_grad():
@@ -73,17 +73,20 @@ def plot_flow(flow, score_model, dataloader, device):
 
 
 class Flow(nn.Module):
-    def __init__(self, dim=2):
+    def __init__(self, dim=2, dim_hidden=64):
         super(Flow, self).__init__()
         self.nonlinear = nn.SiLU()
         self.mlp = nn.Sequential(
-            nn.Linear(dim, 64),
-            VPJBatchNorm(64),
+            nn.Linear(dim, dim_hidden),
+            VPJBatchNorm(dim_hidden),
             self.nonlinear,
-            nn.Linear(64, 64),
-            VPJBatchNorm(64),
+            nn.Linear(dim_hidden, dim_hidden),
+            VPJBatchNorm(dim_hidden),
             self.nonlinear,
-            nn.Linear(64, dim),
+            nn.Linear(dim_hidden, dim_hidden),
+            VPJBatchNorm(dim_hidden),
+            self.nonlinear,
+            nn.Linear(dim_hidden, dim),
             VPJBatchNorm(dim, affine=False)
         )
     
@@ -91,12 +94,91 @@ class Flow(nn.Module):
         output = self.mlp(x)
         return output
 
-def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu'):
+class FlowKernel(nn.Module):
+    def __init__(self, dim=2, dim_hidden=64, num_kernels=4):
+        super(FlowKernel, self).__init__()
+        self.num_kernels = num_kernels
+        self.nonlinear = nn.SiLU()
+        self.mlp = nn.Sequential(
+            nn.Linear(dim * (2 * num_kernels + 1), dim_hidden),
+            VPJBatchNorm(dim_hidden),
+            self.nonlinear,
+            nn.Linear(dim_hidden, dim_hidden),
+            VPJBatchNorm(dim_hidden),
+            self.nonlinear,
+            nn.Linear(dim_hidden, dim),
+            VPJBatchNorm(dim, affine=False)
+        )
+    
+    def position_encoding(self, x):
+        """
+        Apply positional encoding to input coordinates as in NeRF.
+        For each dimension, adds sin/cos encodings at different frequencies
+        while preserving the original coordinate.
+        
+        Args:
+            x: Input tensor of shape [batch, dim]
+            
+        Returns:
+            Encoded tensor with shape [batch, dim * (2 * num_kernels + 1)]
+        """
+        batch_size, dim = x.shape
+        
+        # Initialize output tensor that will include original coordinates
+        encoded = [x]
+        
+        # Apply encoding for each frequency
+        for i in range(self.num_kernels):
+            # 2^i gives increasing frequency for each level
+            freq = 2.0 ** i
+            
+            # Add sin and cos encodings for each dimension
+            sin_encoding = torch.sin(x * freq)
+            cos_encoding = torch.cos(x * freq)
+            
+            encoded.append(sin_encoding)
+            encoded.append(cos_encoding)
+        
+        # Concatenate all encodings along the feature dimension
+        return torch.cat(encoded, dim=-1)
+    
+    def forward(self, x):
+        x = self.position_encoding(x)
+        output = self.mlp(x)
+        return output
+
+class FlowAugmented(nn.Module):
+    def __init__(self, score_model, dim=2, dim_hidden=64):
+        super(FlowAugmented, self).__init__()
+        self.score_model = score_model
+        self.nonlinear = nn.SiLU()
+        self.mlp = nn.Sequential(
+            nn.Linear(dim + score_model.dim, dim_hidden),
+            VPJBatchNorm(dim_hidden),
+            self.nonlinear,
+            nn.Linear(dim_hidden, dim_hidden),
+            VPJBatchNorm(dim_hidden),
+            self.nonlinear,
+            nn.Linear(dim_hidden, dim),
+            VPJBatchNorm(dim, affine=False)
+        )
+    
+    def parameters(self):
+        # not include score_model parameters
+        return self.mlp.parameters()
+    
+    def forward(self, x):
+        score = self.score_model.score(x, t=0.1)
+        input = torch.cat([x, score], dim=-1)
+        return self.mlp(input)
+
+def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu', dim_hidden=64, noise=0.1, num_kernels=4):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     score_model.to(device)
 
-    flow = Flow(dim=dataset.dim)
+    flow = FlowKernel(dim=dataset.dim, dim_hidden=dim_hidden, num_kernels=num_kernels)
+    # flow = Flow(dim=dataset.dim, dim_hidden=dim_hidden)
     flow.to(device)
     optimizer = torch.optim.Adam(flow.parameters(), lr=lr, weight_decay=weight_decay)
     losses = []
@@ -109,9 +191,9 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
         acc_oth_loss = 0
         for x in dataloader:
             x = x.to(device)
-            x = x + torch.randn_like(x) * 0.1
+            x = x + torch.randn_like(x) * noise
             optimizer.zero_grad()
-            div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, num_samples=10)
+            div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, num_samples=num_samples)
             loss = torch.mean(div ** 2)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(flow.parameters(), max_norm=1.0)
@@ -143,7 +225,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_samples', type=int, default=10)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
+    parser.add_argument('--dim_hidden', type=int, default=64)
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
+    parser.add_argument('--noise', type=float, default=0.1)
+    parser.add_argument('--num_kernels', '-k', type=int, default=4)
     args = parser.parse_args()
 
     # set random seed for reproducibility
