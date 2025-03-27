@@ -31,7 +31,7 @@ class Diffusion(nn.Module):
         return alpha
     
     def eps_predictor(self, x, t):
-        input = torch.cat([x, t], dim=-1)
+        input = torch.cat([x, t * 2 - 1], dim=-1)
         return self.mlp(input) + x
     
     def score(self, x, t:float=0.1):
