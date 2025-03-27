@@ -103,6 +103,8 @@ def train(dataset, num_epochs=500, device='none'):
     return model, losses
 
 def test_sample(model, dataset, args, num_sample=100):
+    model.eval()
+    model.to('cpu')
     sampled = model.sample(num_sample)
     if args.model == "lorenz":
         marker = '-'
