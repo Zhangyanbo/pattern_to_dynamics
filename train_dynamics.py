@@ -22,14 +22,8 @@ def load_model(name):
         raise ValueError(f"Model {name} not supported")
 
     score_model = Diffusion(dim=dataset.dim)
-    if name == 'two_peaks':
-        score_model.load_state_dict(torch.load('./models/two_peaks_ddim.pth'))
-    elif name == 'ring':
-        score_model.load_state_dict(torch.load('./models/ring_ddim.pth'))
-    elif name == 'lorenz':
-        score_model.load_state_dict(torch.load('./models/lorenz_ddim.pth'))
-    elif name == 'two_moons':
-        score_model.load_state_dict(torch.load('./models/two_moons_ddim.pth'))
+    path = f'./results/{name}/diffusion_model.pth'
+    score_model.load_state_dict(torch.load(path))
 
     return score_model, dataset
 
@@ -191,10 +185,21 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
     return flow, losses, div_losses, oth_losses
 
 def make_plot_folder(model):
-    if not os.path.exists(f'./figure/{model}'):
-        os.makedirs(f'./figure/{model}')
-    root_path = f'./figure/{model}'
+    if not os.path.exists(f'./results/{model}'):
+        os.makedirs(f'./results/{model}')
+    root_path = f'./results/{model}'
     return root_path
+
+def save_meta_data(args, losses):
+    import json
+    import pickle
+    meta_data = {
+        'args': vars(args),
+    }
+    with open(f'./results/{args.model}/meta_data.json', 'w') as f:
+        json.dump(meta_data, f, indent=4)
+    with open(f'./results/{args.model}/losses.pkl', 'wb') as f:
+        pickle.dump(losses, f)
 
 if __name__ == '__main__':
     import argparse
@@ -220,19 +225,21 @@ if __name__ == '__main__':
 
     score_model, dataset = load_model(args.model)
     device = torch.device(args.device)
-    flow, losses, div_losses, oth_losses = train_dynamics(score_model, dataset, **vars(args))
-    torch.save(flow.state_dict(), f'./models/{args.model}_flow.pth')
+    flow, losses = train_dynamics(score_model, dataset, **vars(args))
+    torch.save(flow.state_dict(), f'./results/{args.model}/dynamics_model.pth')
 
     root_path = make_plot_folder(args.model)
 
-    plt.plot(losses, label='total loss')
+    save_meta_data(args, losses)
+
+    plt.plot(losses['total'], label='total loss')
     plt.semilogy()
     plt.legend()
-    plt.savefig(os.path.join(root_path, 'loss.png'))
-    plt.savefig(os.path.join(root_path, 'loss.pdf'))
+    plt.savefig(os.path.join(root_path, 'dynamics_loss.png'))
+    plt.savefig(os.path.join(root_path, 'dynamics_loss.pdf'))
     plt.close()
 
     plot_flow(flow, score_model, DataLoader(dataset, batch_size=256, shuffle=True), device)
-    plt.savefig(os.path.join(root_path, 'flow.png'))
-    plt.savefig(os.path.join(root_path, 'flow.pdf'))
+    plt.savefig(os.path.join(root_path, 'dynamics_flow.png'))
+    plt.savefig(os.path.join(root_path, 'dynamics_flow.pdf'))
     plt.close()
