@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
+import numpy as np
 import matplotlib.pyplot as plt
 from distributions import LorenzDataset, RingDataset, TwoPeaksDataset, TwoMoonsDataset
 
@@ -132,6 +133,9 @@ def save_model(model, args):
     print(f"Model saved to ./models/{args.model}_ddim.pth")
 
 if __name__ == "__main__":
+    # set seed for reproducibility
+    np.random.seed(0)
+    torch.manual_seed(0)
     import argparse
     # set model: choose from lorenz, ring, two_peaks
     parser = argparse.ArgumentParser()
