@@ -72,7 +72,7 @@ class LorenzDataset(Dataset):
     """
     Dataset for accessing individual points in a Lorenz attractor time series.
     """
-    def __init__(self, num_steps=10000, dt=0.01, sigma=10.0, rho=28.0, beta=8.0/3.0):
+    def __init__(self, num_simulations=10, num_steps=1000, dt=0.01, sigma=10.0, rho=28.0, beta=8.0/3.0):
         """
         Initialize the dataset by generating a single Lorenz time series.
         
@@ -81,13 +81,18 @@ class LorenzDataset(Dataset):
             dt: Time step for integration
             sigma, rho, beta: Lorenz system parameters
         """
-        self.time_series = generate_lorenz_time_series(
-            num_steps=num_steps, 
-            dt=dt, 
-            sigma=sigma, 
-            rho=rho, 
-            beta=beta
-        )
+        self.time_series = []
+        for i in range(num_simulations):
+            self.time_series.append(
+                generate_lorenz_time_series(
+                    num_steps=num_steps, 
+                    dt=dt, 
+                    sigma=sigma, 
+                    rho=rho, 
+                    beta=beta
+                )
+            )
+        self.time_series = torch.cat(self.time_series, dim=0)
         self.time_series = self.normalize(self.time_series)
         self.dim = 3
     
