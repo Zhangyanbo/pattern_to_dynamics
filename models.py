@@ -10,13 +10,10 @@ class Flow(nn.Module):
         self.dim = dim
         self.mlp = nn.Sequential(
             nn.Linear(dim, dim_hidden),
-            VPJBatchNorm(dim_hidden),
             self.nonlinear,
             nn.Linear(dim_hidden, dim_hidden),
-            VPJBatchNorm(dim_hidden),
             self.nonlinear,
             nn.Linear(dim_hidden, dim_hidden),
-            VPJBatchNorm(dim_hidden),
             self.nonlinear,
             nn.Linear(dim_hidden, dim),
             VPJBatchNorm(dim, affine=False)
@@ -34,10 +31,8 @@ class FlowKernel(nn.Module):
         self.dim = dim
         self.mlp = nn.Sequential(
             nn.Linear(dim * (2 * num_kernels + 1), dim_hidden),
-            VPJBatchNorm(dim_hidden),
             self.nonlinear,
             nn.Linear(dim_hidden, dim_hidden),
-            VPJBatchNorm(dim_hidden),
             self.nonlinear,
             nn.Linear(dim_hidden, dim),
             VPJBatchNorm(dim, affine=False)
