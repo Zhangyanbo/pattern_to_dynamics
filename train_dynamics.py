@@ -226,8 +226,6 @@ if __name__ == '__main__':
     root_path = make_plot_folder(args.model)
 
     plt.plot(losses, label='total loss')
-    plt.plot(div_losses, label='div loss')
-    plt.plot(oth_losses, label='oth loss')
     plt.semilogy()
     plt.legend()
     plt.savefig(os.path.join(root_path, 'loss.png'))
