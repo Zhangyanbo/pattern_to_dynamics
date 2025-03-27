@@ -73,12 +73,14 @@ class Diffusion(nn.Module):
         return x
 
 
-def train(dataset, num_epochs=500):
+def train(dataset, num_epochs=500, device='none'):
     from tqdm import tqdm
-    dataloader = DataLoader(dataset, batch_size=256, shuffle=True)
+    if device == 'none':
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dataloader = DataLoader(dataset, batch_size=2048, shuffle=True)
 
-    model = Diffusion(dim=dataset.dim)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+    model = Diffusion(dim=dataset.dim).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=1e-5)
 
     losses = []
     lf = nn.MSELoss()
@@ -87,7 +89,8 @@ def train(dataset, num_epochs=500):
         acc_loss = 0
         for x in dataloader:
             optimizer.zero_grad()
-            t = torch.rand(x.shape[0])
+            x = x.to(device)
+            t = torch.rand(x.shape[0]).to(device)
             eps, eps_pred = model.forward(x, t)
             loss = lf(eps, eps_pred)
             loss.backward()
@@ -133,6 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="lorenz")
     parser.add_argument("--num_epochs", type=int, default=512)
     parser.add_argument("--num_sample", type=int, default=1000)
+    parser.add_argument("--device", type=str, default="none")
     args = parser.parse_args()
     if args.model == "lorenz":
         dataset = LorenzDataset()
@@ -145,7 +149,7 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Model {args.model} not supported")
 
-    model, losses = train(dataset, num_epochs=args.num_epochs)
+    model, losses = train(dataset, num_epochs=args.num_epochs, device=args.device)
     plot_losses(losses, args)
     test_sample(model, dataset, args, num_sample=args.num_sample)
     save_model(model, args)
