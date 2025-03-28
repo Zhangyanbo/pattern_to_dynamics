@@ -144,6 +144,9 @@ def plot_flow(flow, score_model, dataloader, device):
     else:
         raise ValueError(f"Flow dimension {flow.dim} not supported")
 
+def energy_loss(v):
+    energy = torch.sum(v ** 2, dim=-1)
+    return torch.exp(-energy).mean()
 
 def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu', dim_hidden=64, noise=0.1, num_kernels=4, non_kernel=False):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
