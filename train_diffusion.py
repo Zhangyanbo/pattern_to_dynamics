@@ -118,7 +118,7 @@ def test_sample(model, dataset, args, num_sample=100):
     plt.xlabel("x")
     plt.ylabel("y")
     plt.legend()
-    plt.savefig(f"./figure/{args.model}_sampled.png")
+    plt.savefig(f"./results/{args.model}/diffusion_sampled.png")
     plt.close()
 
 def plot_losses(losses, args):
@@ -126,12 +126,12 @@ def plot_losses(losses, args):
     plt.title("Losses")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.savefig(f"./figure/{args.model}_losses.png")
+    plt.savefig(f"./results/{args.model}/diffusion_loss.png")
     plt.close()
 
 def save_model(model, args):
-    torch.save(model.state_dict(), f'./models/{args.model}_ddim.pth')
-    print(f"Model saved to ./models/{args.model}_ddim.pth")
+    torch.save(model.state_dict(), f'./results/{args.model}/diffusion_model.pth')
+    print(f"Model saved to ./results/{args.model}/diffusion_model.pth")
 
 if __name__ == "__main__":
     # set seed for reproducibility
