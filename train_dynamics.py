@@ -201,6 +201,12 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
 def make_plot_folder(model):
     if not os.path.exists(f'./results/{model}'):
         os.makedirs(f'./results/{model}')
+    
+    if not os.path.exists(f'./results/{model}/models'):
+        os.makedirs(f'./results/{model}/models')
+    # clear models folder
+    for file in os.listdir(f'./results/{model}/models'):
+        os.remove(f'./results/{model}/models/{file}')
     root_path = f'./results/{model}'
     return root_path
 
