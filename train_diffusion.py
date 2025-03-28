@@ -23,11 +23,12 @@ class Diffusion(nn.Module):
         self.alpha = self.create_alpha(num_steps) # alpha_T --> 0, alpha_0 --> 1
     
     def create_alpha(self, num_steps):
-        alpha_t = 1 - torch.linspace(1e-3, 1-1e-3, num_steps)
+        delta = 1e-3
+        x = torch.linspace(0, torch.pi, num_steps)
+        alpha_t = (torch.cos(x) * (1-2*delta) + 1) / 2
         # covert to embedding layer, set alpha as a buffer
         alpha = nn.Embedding(num_steps, 1)
         alpha.weight.data = alpha_t.reshape(-1, 1)
-        # don't train the embedding layer
         alpha.weight.requires_grad = False
         return alpha
     
