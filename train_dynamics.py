@@ -178,7 +178,6 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
             loss_energy = torch.mean(energy_loss(v))
             loss = torch.mean(div ** 2) + energy_loss_weight * loss_energy
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(flow.parameters(), max_norm=1.0)
             optimizer.step()
             acc_loss += loss.item()
 
