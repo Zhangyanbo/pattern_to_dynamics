@@ -210,20 +210,31 @@ def make_plot_folder(model):
     root_path = f'./results/{model}'
     return root_path
 
-def save_meta_data(args, losses):
+def save_meta_data(args):
     import json
-    import pickle
     meta_data = {
         'args': vars(args),
     }
     with open(f'./results/{args.model}/meta_data.json', 'w') as f:
         json.dump(meta_data, f, indent=4)
-    with open(f'./results/{args.model}/losses.pkl', 'wb') as f:
-        pickle.dump(losses, f)
+
+def quick_plot(losses, flow, score_model, dataset, device, root_path):
+    plt.plot(losses['total'], label='total loss')
+    plt.semilogy()
+    plt.legend()
+    plt.savefig(os.path.join(root_path, 'dynamics_loss.png'))
+    plt.savefig(os.path.join(root_path, 'dynamics_loss.pdf'))
+    plt.close()
+
+    plot_flow(flow, score_model, DataLoader(dataset, batch_size=256, shuffle=True), device)
+    plt.savefig(os.path.join(root_path, 'dynamics_flow.png'))
+    plt.savefig(os.path.join(root_path, 'dynamics_flow.pdf'))
+    plt.close()
 
 if __name__ == '__main__':
     import argparse
     import os
+    import pickle
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='two_peaks')
@@ -236,30 +247,28 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument('--noise', type=float, default=0.1)
     parser.add_argument('--num_kernels', '-k', type=int, default=4)
-    parser.add_argument('--non_kernel', '-n', type=bool, default=False)
+    parser.add_argument('--non_kernel', type=bool, default=False)
+    parser.add_argument('--energy_loss_weight', '-e', type=float, default=0)
+    parser.add_argument('--seed', '-s', type=int, default=1)
+    parser.add_argument('--num_experiments', '-n', type=int, default=1)
     args = parser.parse_args()
 
     # set random seed for reproducibility
-    torch.manual_seed(0)
-    np.random.seed(0)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
     score_model, dataset = load_model(args.model)
     device = torch.device(args.device)
-    flow, losses = train_dynamics(score_model, dataset, **vars(args))
-    torch.save(flow.state_dict(), f'./results/{args.model}/dynamics_model.pth')
-
     root_path = make_plot_folder(args.model)
-
-    save_meta_data(args, losses)
-
-    plt.plot(losses['total'], label='total loss')
-    plt.semilogy()
-    plt.legend()
-    plt.savefig(os.path.join(root_path, 'dynamics_loss.png'))
-    plt.savefig(os.path.join(root_path, 'dynamics_loss.pdf'))
-    plt.close()
-
-    plot_flow(flow, score_model, DataLoader(dataset, batch_size=256, shuffle=True), device)
-    plt.savefig(os.path.join(root_path, 'dynamics_flow.png'))
-    plt.savefig(os.path.join(root_path, 'dynamics_flow.pdf'))
-    plt.close()
+    save_meta_data(args)
+    loss_info = []
+    for i in range(args.num_experiments):
+        if args.num_experiments > 1:
+            print(f"Training dynamics model {i+1} of {args.num_experiments}")
+        flow, losses = train_dynamics(score_model, dataset, **vars(args))
+        loss_info.append(losses)
+        torch.save(flow.state_dict(), f'./results/{args.model}/models/dynamics_model_{i}.pth')
+        with open(f'./results/{args.model}/losses.pkl', 'wb') as f:
+            pickle.dump(loss_info, f)
+    
+    quick_plot(losses, flow, score_model, dataset, device, root_path)
