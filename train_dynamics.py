@@ -187,8 +187,16 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
         losses.append(acc_loss / len(dataloader))
         div_losses.append(acc_div_loss / len(dataloader))
         oth_losses.append(acc_oth_loss / len(dataloader))
+        energy_losses.append(acc_energy_loss / len(dataloader))
+    
+    losses = {
+        'total': losses,
+        'div': div_losses,
+        'oth': oth_losses,
+        'energy': energy_losses
+    }
 
-    return flow, losses, div_losses, oth_losses
+    return flow, losses
 
 def make_plot_folder(model):
     if not os.path.exists(f'./results/{model}'):
