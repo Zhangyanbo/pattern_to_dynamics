@@ -179,8 +179,9 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
             optimizer.step()
             acc_loss += loss.item()
 
-            acc_div_loss += (div_term ** 2).mean().item()
-            acc_oth_loss += (oth_term ** 2).mean().item()
+            acc_div_loss += div_term.mean().item()
+            acc_oth_loss += oth_term.mean().item()
+            acc_energy_loss += loss_energy.item()
         losses.append(acc_loss / len(dataloader))
         div_losses.append(acc_div_loss / len(dataloader))
         oth_losses.append(acc_oth_loss / len(dataloader))
