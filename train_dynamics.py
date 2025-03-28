@@ -162,18 +162,21 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
     losses = []
     div_losses = []
     oth_losses = []
-    t = 0.05
+    energy_losses = []
+    t = 0.2
     print(f"Alpha.sqrt(): {score_model.alpha_t(torch.tensor(t, device=device)).sqrt().item()}")
 
     for epoch in tqdm(range(num_epochs)):
         acc_loss = 0
         acc_div_loss = 0
         acc_oth_loss = 0
+        acc_energy_loss = 0
         for x in dataloader:
             x = x.to(device)
             optimizer.zero_grad()
             div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, t, num_samples=num_samples)
-            loss = torch.mean(div ** 2)
+            loss_energy = torch.mean(energy_loss(v))
+            loss = torch.mean(div ** 2) + energy_loss_weight * loss_energy
             loss.backward()
             torch.nn.utils.clip_grad_norm_(flow.parameters(), max_norm=1.0)
             optimizer.step()
