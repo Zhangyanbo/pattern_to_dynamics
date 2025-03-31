@@ -33,11 +33,11 @@ def filter_stable_trajectory(traj, threshold=4):
         traj_choosen.append(traj[i])
     return traj_choosen
 
-def get_stable_trajectory(f, num_traj, max_try=10, threshold=4, num_batch=32, num_steps=5000, dt=0.1):
+def get_stable_trajectory(f, num_traj, max_try=10, threshold=4, num_batch=32, num_steps=5000, dt=0.1, dim=3):
     stable_traj = []
     try_count = 0
     while len(stable_traj) < num_traj:
-        x0 = torch.randn(num_batch, 3, dtype=torch.float64)
+        x0 = torch.randn(num_batch, dim, dtype=torch.float64)
         # traj.shape: (num_steps, num_batch, 3)
         traj = simulate_trajectory(f, x0, num_steps, dt).transpose(0, 1)
         traj = filter_stable_trajectory(traj, threshold=threshold)
@@ -79,8 +79,8 @@ def perturb_traj(reference_trajs, f, tau=500, sigma=1e-5, eps=1e-8, dt=0.1):
     distances = torch.stack(distances, dim=0).mean(dim=0)
     return distances
 
-def Lyapunov_exponent(f, num_traj=64, tau=500, total_steps=5000, sigma=1e-5, eps=1e-8, dt=0.1):
-    stable_traj = get_stable_trajectory(f, num_traj, num_steps=total_steps)
+def Lyapunov_exponent(f, num_traj=64, tau=500, total_steps=5000, sigma=1e-5, eps=1e-8, dt=0.1, dim=3):
+    stable_traj = get_stable_trajectory(f, num_traj, num_steps=total_steps, dim=dim)
     if len(stable_traj) > 0:
         reference_trajs = torch.stack(stable_traj, dim=0)
     else:
