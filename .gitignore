@@ -31,6 +31,9 @@ MANIFEST
 *.prof
 *.lprof
 
+# Sketchs
+*.ipynb
+
 # print
 nohup.out
 
