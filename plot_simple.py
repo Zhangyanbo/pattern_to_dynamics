@@ -9,6 +9,10 @@ import matplotlib
 matplotlib.rcParams['mathtext.fontset'] = 'stix'
 matplotlib.rcParams['font.family'] = 'STIXGeneral'
 
+BACKGROUND_COLOR = '#CECECE'
+TRAJECTORY_COLOR = '#9BE1E1'
+DATA_COLOR = '#628FCE'
+
 
 def load_trained_model(model:str, id:int=0):
     score_model, dataset = load_model(model)
@@ -18,7 +22,7 @@ def load_trained_model(model:str, id:int=0):
     flow_model.eval()
     return score_model, flow_model, dataset
 
-def plot_flow_streamlines(flow_model, plot_range=(-3, 3), grid_size=20, ax=None, color='#A9C2E8', stream_args={}):
+def plot_flow_streamlines(flow_model, plot_range=(-3, 3), grid_size=20, ax=None, color=TRAJECTORY_COLOR, stream_args={}):
     """
     Create a streamplot visualization of a flow model's vector field.
     
@@ -63,7 +67,7 @@ def plot_flow_streamlines(flow_model, plot_range=(-3, 3), grid_size=20, ax=None,
     
     return ax
 
-def plot_random_points(dataset, n_samples=256, color='#FBBCA2', alpha=0.75, ax=None):
+def plot_random_points(dataset, n_samples=256, color=DATA_COLOR, alpha=0.75, ax=None):
     """
     Plot randomly sampled points from a dataset's time series.
     
@@ -185,8 +189,8 @@ def create_multi_dataset_plot(ax=None, figsize=(5, 5), wspace=0.1, hspace=0.1):
     return fig, axs
 
 def plot_2d_projection(results, dataset, idx, i=0, j=1, num_points=5000, 
-                       traj_color='#9BE1E1', traj_linewidth=1.5, 
-                       point_color='#FBBCA2', point_alpha=0.75, 
+                       traj_color=TRAJECTORY_COLOR, traj_linewidth=1.5, 
+                       background_color=BACKGROUND_COLOR, point_alpha=0.75, 
                        axes_on_right=False,
                        ax=None, show=True):
     """
@@ -217,11 +221,11 @@ def plot_2d_projection(results, dataset, idx, i=0, j=1, num_points=5000,
     
     # Get trajectory and plot
     traj = results['data'][idx]['reference_trajs'][0]
-    ax.plot(traj[:, i], traj[:, j], color=traj_color, linewidth=traj_linewidth, zorder=1, label='Learned')
+    ax.plot(traj[:, i], traj[:, j], color=traj_color, linewidth=traj_linewidth, zorder=1, label='Learned', alpha=0.75)
     
     # Plot dataset points
     ax.plot(dataset.time_series[:num_points, i], dataset.time_series[:num_points, j], 
-            alpha=point_alpha, color=point_color, label='Lorenz')
+            alpha=point_alpha, color=background_color, label='Lorenz', zorder=0)
     
     # Add labels
     ax.set_xlabel(f'$x_{i+1}$')
@@ -257,7 +261,7 @@ def plot_lyapunov_exponent(results, idx, ax=None):
     else:
         fig = ax.figure
         
-    ax.plot(results['data'][idx]['distances'].mean(dim=0))
+    ax.plot(results['data'][idx]['distances'].mean(dim=0), color=DATA_COLOR)
     ax.semilogy()
     ax.set_xlabel('Time step')
     ax.set_ylabel('Distance')
@@ -344,6 +348,9 @@ def create_2d_projections(axes, results, dataset, idx, num_points):
             legend_added = True
 
 if __name__ == '__main__':
+    # set random seed
+    np.random.seed(0)
+    torch.manual_seed(0)
     import pickle
     # Nested usage example
     fig, axs = plt.subplots(1, 2, figsize=(10, 5))
@@ -351,7 +358,7 @@ if __name__ == '__main__':
     axs[0].set_title('(A) 2d systems')
 
     results = pickle.load(open('./results/lorenz/lyapunov_exponent.pkl', 'rb'))
-    idx = np.argmax(results['exponents_normalized'])
+    idx = 61
     score_model, flow_model, dataset = load_trained_model('lorenz', id=idx)
     fig = plot_lorenz_combined(results, dataset, idx, ax=axs[1], wspace=0.2, hspace=0.1)
     axs[1].set_title('(B) Lorenz system')
