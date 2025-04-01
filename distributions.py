@@ -1,31 +1,16 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
+from utils import integrate_rk4
 
 
-def _update_lorenz_state(state, dt, sigma, rho, beta):
-    """
-    Update the state of the Lorenz system for one time step.
-    
-    Args:
-        state (torch.Tensor): Current state [x, y, z]
-        dt (float): Time step size
-        sigma, rho, beta (float): Lorenz system parameters
-    
-    Returns:
-        torch.Tensor: Updated state
-    """
-    x, y, z = state[0], state[1], state[2]
-    
-    dx = sigma * (y - x)
-    dy = x * (rho - z) - y
-    dz = x * y - beta * z
-    
-    # Update using Euler method
-    new_x = x + dx * dt
-    new_y = y + dy * dt
-    new_z = z + dz * dt
-    
-    return torch.tensor([new_x, new_y, new_z])
+def vf_lorenz(sigma, rho, beta):
+    def vf(state):
+        x, y, z = state[0], state[1], state[2]
+        dx = sigma * (y - x)
+        dy = x * (rho - z) - y
+        dz = x * y - beta * z
+        return torch.tensor([dx, dy, dz])
+    return vf
 
 def generate_lorenz_time_series(
     num_steps=10000, 
@@ -61,8 +46,9 @@ def generate_lorenz_time_series(
     time_series[0] = state
     
     # Generate the time series
+    f = vf_lorenz(sigma, rho, beta)
     for i in range(1, num_steps):
-        state = _update_lorenz_state(state, dt, sigma, rho, beta)
+        state = integrate_rk4(f, state, dt)
         time_series[i] = state
     
     return time_series
