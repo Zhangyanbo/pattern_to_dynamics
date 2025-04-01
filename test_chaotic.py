@@ -79,37 +79,47 @@ def perturb_traj(reference_trajs, f, tau=500, sigma=1e-5, eps=1e-8, dt=0.1):
     distances = torch.stack(distances, dim=0).mean(dim=0)
     return distances
 
+def get_speed(traj, dt):
+    # traj: [num_batch, num_steps, dim]
+    diff = traj[:, 1:] - traj[:, :-1] # [num_batch, num_steps-1, dim]
+    movements = diff.norm(dim=-1).mean()
+    speed = movements / dt
+    return speed
+
 def Lyapunov_exponent(f, num_traj=64, tau=500, total_steps=5000, sigma=1e-5, eps=1e-8, dt=0.1, dim=3):
     stable_traj = get_stable_trajectory(f, num_traj, num_steps=total_steps, dim=dim)
     if len(stable_traj) > 0:
-        reference_trajs = torch.stack(stable_traj, dim=0)
+        reference_trajs = torch.stack(stable_traj, dim=0) # [num_traj, num_steps, dim]
     else:
         # no stable trajectory found
         return None, None
 
     distances = perturb_traj(reference_trajs, f, tau, sigma, eps, dt)
+    speed = get_speed(reference_trajs, dt)
 
     simulation_data = {
         'reference_trajs': reference_trajs,
-        'distances': distances
+        'distances': distances,
+        'speed': speed
     }
 
     distances = distances.mean(dim=0).log()
     exponent = (distances[-1] - distances[0]) / (tau * dt)
+    normalized_exponent = (distances[-1] - distances[0]) / speed
 
-    return exponent.item(), simulation_data
+    return exponent.item(), normalized_exponent.item(), simulation_data
 
-def save_results(exponents, data):
+def save_results(exponents, exponents_normalized, data):
     import pickle
     import json
     
     path = './results/lorenz/lyapunov_exponent.json'
     with open(path, 'w') as f:
-        json.dump({'exponents': exponents}, f, indent=4)
+        json.dump({'exponents': exponents, 'exponents_normalized': exponents_normalized}, f, indent=4)
     
     path = './results/lorenz/lyapunov_exponent.pkl'
     with open(path, 'wb') as f:
-        pickle.dump({'exponents': exponents, 'data': data}, f)
+        pickle.dump({'exponents': exponents, 'exponents_normalized': exponents_normalized, 'data': data}, f)
 
 def save_meta_data(args):
     import json
@@ -128,6 +138,7 @@ def main(args):
         models = list(range(num_models))
 
     exponents = []
+    exponents_normalized = []
     data = []
     for i in tqdm(models):
         score_model, flow_model, dataset = load_lorenz(i)
@@ -136,12 +147,13 @@ def main(args):
             f = lambda x: score_model.score(x, t=0.1) * (r ** 0.5) + flow_model(x) * ((1-r) ** 0.5)
         else:
             f = flow_model
-        exponent, simulation_data = Lyapunov_exponent(f, num_traj=args.num_traj, tau=args.tau, total_steps=args.total_steps, sigma=args.sigma, eps=args.eps, dt=args.dt)
-        tqdm.write(f'Model {i} has Lyapunov exponent {exponent}')
+        exponent, exponent_normalized, simulation_data = Lyapunov_exponent(f, num_traj=args.num_traj, tau=args.tau, total_steps=args.total_steps, sigma=args.sigma, eps=args.eps, dt=args.dt)
+        tqdm.write(f'Model {i} has Lyapunov exponent {exponent:.4f} (normalized: {exponent_normalized:.4f})')
         exponents.append(exponent)
+        exponents_normalized.append(exponent_normalized)
         data.append(simulation_data)
 
-    save_results(exponents, data)
+    save_results(exponents, exponents_normalized, data)
 
 if __name__ == '__main__':
     import numpy as np
