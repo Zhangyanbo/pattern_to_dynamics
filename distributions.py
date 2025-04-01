@@ -58,7 +58,7 @@ class LorenzDataset(Dataset):
     """
     Dataset for accessing individual points in a Lorenz attractor time series.
     """
-    def __init__(self, num_simulations=10, num_steps=1000, dt=0.01, sigma=10.0, rho=28.0, beta=8.0/3.0):
+    def __init__(self, num_simulations=10, num_steps=5000, dt=0.01, sigma=10.0, rho=28.0, beta=8.0/3.0):
         """
         Initialize the dataset by generating a single Lorenz time series.
         
