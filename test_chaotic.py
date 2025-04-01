@@ -162,7 +162,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_models', '-n', type=int, default=100)
     parser.add_argument('--specific_model', '-m', type=int, default=-1)
     parser.add_argument('--num_traj', '-s', type=int, default=64)
-    parser.add_argument('--tau', '-t', type=int, default=500)
+    parser.add_argument('--tau', '-t', type=int, default=2500)
     parser.add_argument('--total_steps', '-T', type=int, default=5000)
     parser.add_argument('--sigma', '-sigma', type=float, default=1e-10)
     parser.add_argument('--eps', '-eps', type=float, default=1e-20)
