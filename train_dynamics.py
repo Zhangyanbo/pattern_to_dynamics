@@ -39,7 +39,10 @@ def plot_flow2d(flow, score_model, dataloader, device):
     flow.eval()
 
     with torch.no_grad():
-        v = flow.forward(points).cpu() * 0.05
+        v = flow.forward(points).cpu()
+    
+    vector_avg_norm = torch.mean(torch.norm(v, dim=-1))
+    v = v / vector_avg_norm * 0.05
 
     plt.figure(figsize=(5, 5))
 
@@ -100,7 +103,10 @@ def plot_flow3d(flow, score_model, dataloader, device):
     # Compute vector field
     flow.eval()
     with torch.no_grad():
-        vectors = flow.forward(grid_points).cpu() * 0.025
+        vectors = flow.forward(grid_points).cpu()
+    
+    vector_avg_norm = torch.mean(torch.norm(vectors, dim=-1))
+    vectors = vectors / vector_avg_norm * 0.05
     
     # Plot vector field (every few points to avoid overcrowding)
     skip = 4
