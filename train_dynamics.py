@@ -8,6 +8,7 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 from models import FlowKernel, Flow
+import math
 
 def load_model(name):
     if name == 'two_peaks':
@@ -38,7 +39,7 @@ def plot_flow2d(flow, score_model, dataloader, device):
     flow.eval()
 
     with torch.no_grad():
-        v = flow.forward(points).cpu() * 0.025
+        v = flow.forward(points).cpu() * 0.05
 
     plt.figure(figsize=(5, 5))
 
@@ -151,7 +152,8 @@ def energy_loss(v, T=1.0):
     # Maxwell-Boltzmann distribution
     E = energy(v)
     log_p = E / T - E.log()
-    return log_p.mean()
+    min_logp = 1 - math.log(T)
+    return log_p.mean() - min_logp
 
 def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num_samples=10, lr=1e-3, weight_decay=1e-5, num_epochs=1024, device='cpu', dim_hidden=64, noise=0.1, num_kernels=4, non_kernel=False, energy_loss_weight=0.0, **kwargs):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -166,6 +168,7 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
     optimizer = torch.optim.Adam(flow.parameters(), lr=lr, weight_decay=weight_decay)
     losses = []
     div_losses = []
+    inv_losses = []
     oth_losses = []
     energy_losses = []
     t = 0.2
@@ -174,6 +177,7 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
     for epoch in tqdm(range(num_epochs)):
         acc_loss = 0
         acc_div_loss = 0
+        acc_inv_loss = 0
         acc_oth_loss = 0
         acc_energy_loss = 0
         for x in dataloader:
@@ -181,22 +185,26 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
             optimizer.zero_grad()
             div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, t, num_samples=num_samples)
             loss_energy = torch.mean(energy_loss(v))
-            loss = torch.mean(div ** 2) + energy_loss_weight * loss_energy
+            loss_inv = torch.mean(div ** 2)
+            loss = loss_inv + energy_loss_weight * loss_energy
             loss.backward()
             optimizer.step()
             acc_loss += loss.item()
 
             acc_div_loss += div_term.mean().item()
             acc_oth_loss += oth_term.mean().item()
+            acc_inv_loss += loss_inv.item()
             acc_energy_loss += loss_energy.item()
         losses.append(acc_loss / len(dataloader))
         div_losses.append(acc_div_loss / len(dataloader))
+        inv_losses.append(acc_inv_loss / len(dataloader))
         oth_losses.append(acc_oth_loss / len(dataloader))
         energy_losses.append(acc_energy_loss / len(dataloader))
     
     losses = {
         'total': losses,
         'div': div_losses,
+        'inv': inv_losses,
         'oth': oth_losses,
         'energy': energy_losses
     }
@@ -224,7 +232,8 @@ def save_meta_data(args):
         json.dump(meta_data, f, indent=4)
 
 def quick_plot(losses, flow, score_model, dataset, device, root_path):
-    plt.plot(losses['total'], label='total loss')
+    plt.plot(losses['inv'], label='inv loss')
+    plt.plot(losses['energy'], label='energy loss')
     plt.semilogy()
     plt.legend()
     plt.savefig(os.path.join(root_path, 'dynamics_loss.png'))
