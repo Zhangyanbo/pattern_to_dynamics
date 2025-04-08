@@ -347,6 +347,40 @@ def create_2d_projections(axes, results, dataset, idx, num_points):
             ax.legend()
             legend_added = True
 
+def plot_score_and_flow_models(dataset_name='two_peaks', id=0):
+    """
+    Create a figure with two subplots showing score model and flow model visualizations.
+    
+    Args:
+        dataset_name: Name of the dataset to load (default: 'two_peaks')
+        id: Model ID to load (default: 0)
+        
+    Returns:
+        fig: The created figure
+    """
+    # Load models and dataset
+    score_model, flow_model, dataset = load_trained_model(dataset_name, id=id)
+    
+    # Create a figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(5, 3))
+    
+    # First subplot - Score model
+    ax1.set_aspect('equal')
+    ax1.set_title('(A) Score Function')
+    plot_flow_streamlines(lambda x: score_model.score(x, t=0.1), ax=ax1, color='#FBBCA2', 
+                          stream_args={'linewidth': 1., 'density': 0.75})
+    plot_random_points(dataset, ax=ax1, color='#628FCE', alpha=0.75)
+    
+    # Second subplot - Flow model
+    ax2.set_aspect('equal')
+    ax2.set_title('(B) Dynamics')
+    plot_flow_streamlines(flow_model, ax=ax2, color='#9BE1E1', 
+                          stream_args={'linewidth': 1., 'density': 0.75})
+    plot_random_points(dataset, ax=ax2, color='#628FCE', alpha=0.75)
+    
+    plt.tight_layout()
+    return fig
+
 if __name__ == '__main__':
     # set random seed
     np.random.seed(0)
@@ -364,4 +398,9 @@ if __name__ == '__main__':
     axs[1].set_title('(B) Lorenz system')
     plt.savefig('./results/simple_systems.png', dpi=300, bbox_inches='tight')
     plt.savefig('./results/simple_systems.pdf', bbox_inches='tight')
+    plt.close()
+
+    fig = plot_score_and_flow_models('two_peaks', id=0)
+    fig.savefig('./results/score_and_flow_models.png', dpi=300, bbox_inches='tight')
+    fig.savefig('./results/score_and_flow_models.pdf', bbox_inches='tight')
     plt.close()
