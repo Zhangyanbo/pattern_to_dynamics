@@ -347,7 +347,29 @@ def create_2d_projections(axes, results, dataset, idx, num_points):
             ax.legend()
             legend_added = True
 
-def plot_score_and_flow_models(dataset_name='two_peaks', id=0):
+def plot_SDE(v, s, x0, eta=0.1, ax=None, num_steps=1000, dt=0.1):
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+    
+    def langivin_dx(x, h):
+        with torch.no_grad():
+            dx = (v(x) + eta * s(x)) * h + (2 * eta * h)**0.5 * torch.randn_like(x)
+        return dx
+    
+    trace = [x0]
+    for _ in range(num_steps):
+        x = trace[-1]
+        x = x + langivin_dx(x, dt)
+        trace.append(x)
+    trace = torch.cat(trace, dim=0)
+    ax.plot(trace[:, 0], trace[:, 1], color=TRAJECTORY_COLOR, alpha=0.75)
+    # for t in range(len(trace)-1):
+    #     ax.plot(trace[t:t+2, 0], trace[t:t+2, 1], '-', color=TRAJECTORY_COLOR, alpha=0.5)
+        
+
+def plot_score_and_flow_models(dataset_name='two_peaks', id=0, eta=0.1):
     """
     Create a figure with two subplots showing score model and flow model visualizations.
     
@@ -362,7 +384,7 @@ def plot_score_and_flow_models(dataset_name='two_peaks', id=0):
     score_model, flow_model, dataset = load_trained_model(dataset_name, id=id)
     
     # Create a figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(5, 3))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(8, 4))
     
     # First subplot - Score model
     ax1.set_aspect('equal')
@@ -370,14 +392,27 @@ def plot_score_and_flow_models(dataset_name='two_peaks', id=0):
     plot_flow_streamlines(lambda x: score_model.score(x, t=0.1), ax=ax1, color='#FBBCA2', 
                           stream_args={'linewidth': 1., 'density': 0.75})
     plot_random_points(dataset, ax=ax1, color='#628FCE', alpha=0.75)
-    
+    ax1.set_xlabel(f'$x_1$')
+    ax1.set_ylabel(f'$x_2$')
+
     # Second subplot - Flow model
     ax2.set_aspect('equal')
     ax2.set_title('(B) Dynamics')
     plot_flow_streamlines(flow_model, ax=ax2, color='#9BE1E1', 
                           stream_args={'linewidth': 1., 'density': 0.75})
     plot_random_points(dataset, ax=ax2, color='#628FCE', alpha=0.75)
-    
+    ax2.set_xlabel(f'$x_1$')
+    ax2.set_ylabel(f'$x_2$')
+
+    # Third subplot - SDE
+    ax3.set_aspect('equal')
+    ax3.set_title('(C) SDE')
+    plot_flow_streamlines(lambda x: flow_model(x) + eta * score_model.score(x, t=0.1), ax=ax3, color='#DDDDDD', 
+                          stream_args={'linewidth': 1., 'density': 0.75})
+    for x0 in torch.Tensor([[2, 2], [2, -2], [-2, 2], [-2, -2]]):
+        plot_SDE(flow_model, lambda x: score_model.score(x, t=0.1), x0.reshape(1, -1), ax=ax3, num_steps=500, dt=0.01, eta=eta)
+    plot_random_points(dataset, ax=ax3, color='#628FCE', alpha=0.75)
+
     plt.tight_layout()
     return fig
 
