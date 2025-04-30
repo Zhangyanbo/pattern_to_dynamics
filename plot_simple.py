@@ -369,7 +369,7 @@ def plot_SDE(v, s, x0, eta=0.1, ax=None, num_steps=1000, dt=0.1):
     #     ax.plot(trace[t:t+2, 0], trace[t:t+2, 1], '-', color=TRAJECTORY_COLOR, alpha=0.5)
         
 
-def plot_score_and_flow_models(dataset_name='two_peaks', id=0, eta=0.1):
+def plot_score_and_flow_models(dataset_name='two_peaks', id=0, eta=0.25):
     """
     Create a figure with two subplots showing score model and flow model visualizations.
     
@@ -412,6 +412,8 @@ def plot_score_and_flow_models(dataset_name='two_peaks', id=0, eta=0.1):
     for x0 in torch.Tensor([[2, 2], [2, -2], [-2, 2], [-2, -2]]):
         plot_SDE(flow_model, lambda x: score_model.score(x, t=0.1), x0.reshape(1, -1), ax=ax3, num_steps=500, dt=0.01, eta=eta)
     plot_random_points(dataset, ax=ax3, color='#628FCE', alpha=0.75)
+    ax3.set_xlabel(f'$x_1$')
+    ax3.set_ylabel(f'$x_2$')
 
     plt.tight_layout()
     return fig
