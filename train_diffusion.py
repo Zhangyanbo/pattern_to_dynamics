@@ -3,6 +3,7 @@ from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
+from utils import create_alpha
 from distributions import LorenzDataset, RingDataset, TwoPeaksDataset, TwoMoonsDataset
 
 ## Model
@@ -20,17 +21,7 @@ class Diffusion(nn.Module):
             self.nonlinear,
             nn.Linear(64, dim),
         )
-        self.alpha = self.create_alpha(num_steps) # alpha_T --> 0, alpha_0 --> 1
-    
-    def create_alpha(self, num_steps):
-        delta = 1e-3
-        x = torch.linspace(0, torch.pi, num_steps)
-        alpha_t = (torch.cos(x) * (1-2*delta) + 1) / 2
-        # covert to embedding layer, set alpha as a buffer
-        alpha = nn.Embedding(num_steps, 1)
-        alpha.weight.data = alpha_t.reshape(-1, 1)
-        alpha.weight.requires_grad = False
-        return alpha
+        self.alpha = create_alpha(num_steps) # alpha_T --> 0, alpha_0 --> 1
     
     def eps_predictor(self, x, t):
         input = torch.cat([x, t * 2 - 1], dim=-1)

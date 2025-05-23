@@ -92,3 +92,13 @@ def div_estimate(flow_model, score_model, x, t, num_samples=2):
     div_term, v = hutchinson_estimate(flow_model, xt, num_samples=num_samples)
     oth_term = torch.einsum('nd, nd -> n', v, s)
     return div_term + oth_term, s, v, div_term, oth_term
+
+def create_alpha(num_steps):
+    delta = 1e-3
+    x = torch.linspace(0, torch.pi, num_steps)
+    alpha_t = (torch.cos(x) * (1-2*delta) + 1) / 2
+    # covert to embedding layer, set alpha as a buffer
+    alpha = nn.Embedding(num_steps, 1)
+    alpha.weight.data = alpha_t.reshape(-1, 1)
+    alpha.weight.requires_grad = False
+    return alpha
