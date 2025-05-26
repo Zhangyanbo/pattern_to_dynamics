@@ -32,12 +32,11 @@ def get_model():
     return unet
 
 
-def train_diffusion():
+def train_diffusion(num_epochs=500):
     dataset = GoLDataset(num_samples=1024 * 8, height=64, width=64, steps=128, device='cuda', mode='precompute', normalize=False)
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
     scheduler = DDPMScheduler(num_train_timesteps=1000, prediction_type="epsilon")
 
-    num_epochs = 5
     unet = get_model().cuda()
     optimizer = torch.optim.AdamW(unet.parameters(), lr=1e-3, weight_decay=1e-5)
     training_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-5)
@@ -91,10 +90,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', type=str, default='train', choices=['train', 'plot'],
                         help='train model or plot samples from saved model')
+    parser.add_argument('--num_epochs', type=int, default=500,
+                        help='number of epochs to train')
     args = parser.parse_args()
 
     if args.mode == 'train':
-        unet, losses, x_sample, scheduler = train_diffusion()
+        unet, losses, x_sample, scheduler = train_diffusion(args.num_epochs)
         torch.save(unet.state_dict(), './models/GoL_diffusion.pth')
         with open('./models/GoL_diffusion.json', 'w') as f:
             json.dump(unet.config, f, indent=4)
