@@ -99,12 +99,16 @@ if __name__ == "__main__":
         torch.save(unet.state_dict(), './models/GoL_diffusion.pth')
         with open('./models/GoL_diffusion.json', 'w') as f:
             json.dump(unet.config, f, indent=4)
+        with open('./models/losses.json', 'w') as f:
+            json.dump(losses, f, indent=4)
         plot_loss(losses)
         plot_compare(unet, x_sample, scheduler)
     else:
         # Load model config and create model
         with open('./models/GoL_diffusion.json', 'r') as f:
             config = json.load(f)
+        with open('./models/losses.json', 'r') as f:
+            losses = json.load(f)
         unet = UNet2DModel(**config).cuda()
         unet.load_state_dict(torch.load('./models/GoL_diffusion.pth'))
         
@@ -114,3 +118,4 @@ if __name__ == "__main__":
         scheduler = DDPMScheduler(num_train_timesteps=1000, prediction_type="epsilon")
         x_sample = next(iter(dataloader)).cuda()
         plot_compare(unet, x_sample, scheduler)
+        plot_loss(losses)
