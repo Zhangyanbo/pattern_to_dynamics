@@ -65,8 +65,8 @@ def train_diffusion(num_epochs=500):
 
 def plot_loss(losses):
     plt.plot(losses)
-    plt.savefig('./figures/loss.pdf')
     plt.semilogy()
+    plt.savefig('./figures/loss.pdf')
     plt.close()
 
 def plot_compare(unet, x_gol, scheduler):
