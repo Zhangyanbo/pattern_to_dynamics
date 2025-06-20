@@ -1,0 +1,12 @@
+{
+    "num_models": 100,
+    "specific_model": -1,
+    "num_traj": 64,
+    "tau": 2500,
+    "total_steps": 5000,
+    "sigma": 1e-05,
+    "eps": 1e-20,
+    "dt": 0.1,
+    "seed": 0,
+    "score_ratio": 0.0
+}
