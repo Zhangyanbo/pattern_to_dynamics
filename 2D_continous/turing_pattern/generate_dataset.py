@@ -16,6 +16,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # set random seed for reproducibility
+    import torch, random, numpy
+
+
+    random.seed(0)
+    numpy.random.seed(0)
+    torch.manual_seed(0)
+
+
     dataset = TuringPatternDataset(
         num_samples=args.num_samples,
         height=args.height,
