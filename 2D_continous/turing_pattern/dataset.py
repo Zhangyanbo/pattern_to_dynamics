@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
+import pickle
+import os
+from tqdm import tqdm
 
 
 # Gray-Scott Turing Pattern Dataset
@@ -239,7 +242,10 @@ class TuringPatternDataset(Dataset):
         mode: str = "precompute",
         chunk: int = 32,
         normalize: bool = True,
-        return_channel: str = 'both'  # 'u', 'v', or 'both'
+        return_channel: str = 'both',  # 'u', 'v', or 'both'
+        precomputed_data: torch.Tensor = None,
+        mu: float = 0.0,
+        std: float = 1.0
     ):
         """
         Args:
@@ -257,6 +263,8 @@ class TuringPatternDataset(Dataset):
             chunk: Batch size for precomputation
             normalize: Whether to normalize the data
             return_channel: Which concentration field to return (default: 'both' for 2 channels)
+            precomputed_data: Pre-computed data tensor to use instead of running simulation
+            mu, std: Normalization parameters when using precomputed_data
         """
         super().__init__()
         self.num_samples = num_samples
@@ -266,6 +274,8 @@ class TuringPatternDataset(Dataset):
         self.device = device
         self.mode = mode
         self.return_channel = return_channel
+        self.mu = mu
+        self.std = std
         
         # Use preset parameters if specified
         if pattern_preset and pattern_preset in self.PRESETS:
@@ -284,14 +294,98 @@ class TuringPatternDataset(Dataset):
             'pattern_preset': pattern_preset
         }
         
-        if mode == "precompute":
+        if precomputed_data is not None:
+            # Use provided precomputed data
+            self.data = precomputed_data
+        elif mode == "precompute":
+            # Generate data through simulation
             self.data = self._precompute(chunk)
             if normalize:
                 self.data = self.normalize(self.data)
-            self.std = 1.0
-            self.mu = 0.0
         elif mode != "online":
             raise ValueError("mode must be 'precompute' or 'online'")
+    
+    def save(self, filepath):
+        """
+        Save the complete dataset including all parameters and precomputed data.
+        
+        Args:
+            filepath: Path to save the dataset (will save as .pt file)
+        """
+        # create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        if not filepath.endswith('.pt'):
+            filepath += '.pt'
+            
+        # Prepare data to save
+        save_data = {
+            'num_samples': self.num_samples,
+            'height': self.height,
+            'width': self.width,
+            'steps': self.steps,
+            'init_pattern': self.init_pattern,
+            'device': self.device,
+            'mode': self.mode,
+            'return_channel': self.return_channel,
+            'params': self.params,
+            'mu': getattr(self, 'mu', 0.0),
+            'std': getattr(self, 'std', 1.0),
+        }
+        
+        # Include precomputed data if available
+        if hasattr(self, 'data'):
+            save_data['data'] = self.data
+        
+        torch.save(save_data, filepath)
+        print(f"Dataset saved to {filepath}")
+    
+    @classmethod
+    def load(cls, filepath):
+        """
+        Load a previously saved dataset. No simulation will be performed during loading.
+        
+        Args:
+            filepath: Path to the saved dataset file
+            
+        Returns:
+            TuringPatternDataset instance with all data and parameters restored
+        """
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"Dataset file not found: {filepath}")
+        
+        # Load the saved data
+        save_data = torch.load(filepath, map_location='cpu')
+        
+        # Extract parameters
+        params = save_data['params']
+        
+        # Create instance using precomputed_data parameter
+        instance = cls(
+            num_samples=save_data['num_samples'],
+            height=save_data['height'],
+            width=save_data['width'],
+            steps=save_data['steps'],
+            Du=params['Du'],
+            Dv=params['Dv'],
+            F=params['F'],
+            k=params['k'],
+            dt=params['dt'],
+            pattern_preset=params['pattern_preset'],
+            init_pattern=save_data['init_pattern'],
+            device=save_data['device'],
+            mode=save_data['mode'],
+            return_channel=save_data['return_channel'],
+            precomputed_data=save_data.get('data', None),
+            mu=save_data['mu'],
+            std=save_data['std']
+        )
+        
+        print(f"Dataset loaded from {filepath}")
+        print(f"Pattern type: {params.get('pattern_preset', 'custom')}")
+        print(f"Parameters: Du={params['Du']}, Dv={params['Dv']}, F={params['F']}, k={params['k']}")
+        print(f"Samples: {instance.num_samples}, Size: {instance.height}x{instance.width}")
+        
+        return instance
     
     def __len__(self):
         return self.num_samples
@@ -304,14 +398,14 @@ class TuringPatternDataset(Dataset):
     
     def normalize(self, x):
         """Normalize data to zero mean and unit variance."""
-        mu = x.reshape(-1).mean()
-        std = x.reshape(-1).std()
+        mu = x.transpose(0, 1).reshape(2, -1).mean(dim=-1).reshape(1, 2, 1, 1)
+        std = x.transpose(0, 1).reshape(2, -1).std(dim=-1).reshape(1, 2, 1, 1)
         self.mu, self.std = mu, std
-        return (x - mu) / std
+        return (x - mu) / (std + 1e-5)
     
     def denormalize(self, x):
         """Reverse normalization."""
-        return x * self.std + self.mu
+        return x * (self.std + 1e-5) + self.mu
     
     @torch.no_grad()
     def _simulate(self, batch_size: int) -> torch.Tensor:
@@ -335,8 +429,12 @@ class TuringPatternDataset(Dataset):
     
     def _precompute(self, chunk: int) -> torch.Tensor:
         """Generate samples in chunks to manage memory."""
+        
         samples = []
         remaining = self.num_samples
+        
+        # Create progress bar
+        pbar = tqdm(total=self.num_samples, desc="Generating samples")
         
         while remaining > 0:
             cur = min(chunk, remaining)
@@ -344,37 +442,12 @@ class TuringPatternDataset(Dataset):
             samples.append(batch)
             remaining -= cur
             
-            # Progress indicator
-            if len(samples) % 10 == 0:
-                print(f"Generated {len(samples) * chunk}/{self.num_samples} samples...")
+            # Update progress bar
+            pbar.update(cur)
         
-        return torch.cat(samples, dim=0)
+        pbar.close()
+        return torch.cat(samples, dim=0).cpu()
     
     def get_params(self):
         """Return the Gray-Scott parameters used."""
         return self.params.copy()
-
-
-# Example usage and testing
-if __name__ == "__main__":
-    # Create dataset with different pattern types
-    datasets = {}
-    
-    # Test some classic patterns
-    for preset in ['spots', 'stripes', 'spirals', 'fingerprints']:
-        print(f"Creating {preset} dataset...")
-        dataset = TuringPatternDataset(
-            num_samples=100,
-            height=64,
-            width=64,
-            steps=2000,
-            pattern_preset=preset,
-            device='cuda' if torch.cuda.is_available() else 'cpu',
-            mode='precompute',
-            chunk=10
-        )
-        datasets[preset] = dataset
-        print(f"  Shape: {dataset[0].shape}")  # Should be (2, H, W) for both channels
-        params = dataset.get_params()
-        print(f"  Parameters: Du={params['Du']}, Dv={params['Dv']}, F={params['F']}, k={params['k']}")
-        print()
