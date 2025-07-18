@@ -29,7 +29,7 @@ class GrayScottSimulator(nn.Module):
     - And many more complex patterns...
     """
     
-    def __init__(self, Du=0.16, Dv=0.08, F=0.035, k=0.065, dt=1.0, device='cpu'):
+    def __init__(self, Du=0.16, Dv=0.08, F=0.035, k=0.065, dt=1.0, clamp=True, device='cpu'):
         """
         Args:
             Du: Diffusion rate of U (typically 0.16)
@@ -46,6 +46,7 @@ class GrayScottSimulator(nn.Module):
         self.k = k
         self.dt = dt
         self.device = device
+        self.clamp = clamp
         
         # Laplacian kernel for diffusion
         laplacian_kernel = torch.tensor([
@@ -92,8 +93,9 @@ class GrayScottSimulator(nn.Module):
         v_next = v + self.dt * dv_dt
         
         # Clamp to ensure stability
-        u_next = torch.clamp(u_next, 0, 1)
-        v_next = torch.clamp(v_next, 0, 1)
+        if self.clamp:
+            u_next = torch.clamp(u_next, 0, 1)
+            v_next = torch.clamp(v_next, 0, 1)
         
         return u_next, v_next
     
@@ -194,9 +196,10 @@ class TuringPatternDataset(Dataset):
         # Classical patterns from Pearson 1993 and other sources
         # Note: Du/Dv ratio is typically 2, as U diffuses faster than V
         'spots': {'Du': 0.16, 'Dv': 0.08, 'F': 0.035, 'k': 0.065},
+        'dots': {'Du': 0.16, 'Dv': 0.08, 'F': 0.04, 'k': 0.07},
         'stripes': {'Du': 0.16, 'Dv': 0.08, 'F': 0.035, 'k': 0.060},
         'spirals': {'Du': 0.10, 'Dv': 0.05, 'F': 0.014, 'k': 0.054},
-        'waves': {'Du': 0.10, 'Dv': 0.05, 'F': 0.025, 'k': 0.055},
+        'waves': {'Du': 0.16, 'Dv': 0.08, 'F': 0.014, 'k': 0.047}, # from https://arxiv.org/abs/1501.01990
         'holes': {'Du': 0.16, 'Dv': 0.08, 'F': 0.039, 'k': 0.058},
         'chaos': {'Du': 0.10, 'Dv': 0.05, 'F': 0.026, 'k': 0.051},
         'maze': {'Du': 0.16, 'Dv': 0.08, 'F': 0.029, 'k': 0.057},
@@ -208,11 +211,6 @@ class TuringPatternDataset(Dataset):
         'pulsating_solitons': {'Du': 0.10, 'Dv': 0.05, 'F': 0.025, 'k': 0.060},
         'u_skate': {'Du': 0.16, 'Dv': 0.08, 'F': 0.062, 'k': 0.061},
         'fingerprints': {'Du': 0.16, 'Dv': 0.08, 'F': 0.040, 'k': 0.064},
-        
-        # Different diffusion ratio patterns
-        'dots_fast': {'Du': 0.14, 'Dv': 0.06, 'F': 0.035, 'k': 0.065},
-        'stripes_slow': {'Du': 0.12, 'Dv': 0.08, 'F': 0.060, 'k': 0.062},
-        'waves_fast': {'Du': 0.12, 'Dv': 0.08, 'F': 0.020, 'k': 0.050}
     }
     
     def __init__(
@@ -227,6 +225,7 @@ class TuringPatternDataset(Dataset):
         F: float = 0.035,
         k: float = 0.065,
         dt: float = 1.0,
+        clamp: bool = True,
         pattern_preset: str = None,
         init_pattern: str = 'multiple_seeds',
         device: str = "cpu",
@@ -270,7 +269,7 @@ class TuringPatternDataset(Dataset):
             k = preset['k']
         
         # Create simulator
-        self.sim = GrayScottSimulator(Du=Du, Dv=Dv, F=F, k=k, dt=dt, device=device)
+        self.sim = GrayScottSimulator(Du=Du, Dv=Dv, F=F, k=k, dt=dt, clamp=clamp, device=device)
         
         # Store parameters
         self.params = {
