@@ -64,7 +64,7 @@ class DiffusionTrainer:
         checkpoint_path (str): Path to save the trained model checkpoint.
     """
     def __init__(self, unet: UNet2DModel, scheduler: DDPMScheduler, dataset: torch.utils.data.Dataset,
-                 epochs: int = 100, learning_rate: float = 1e-4, batch_size: int = 32,
+                 epochs: int = 100, learning_rate: float = 1e-4, batch_size: int = 32, weight_decay: float = 1e-5,
                  task_name: str = 'diffusion', use_wandb: bool = False,
                  device: str = 'cuda', validation_split: float = 0.1, checkpoint_path: str = 'unet_checkpoint.pth'):
 
@@ -74,6 +74,7 @@ class DiffusionTrainer:
         self.dataset = dataset
         self.epochs = epochs
         self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
         self.batch_size = batch_size
         self.validation_split = validation_split
         self.checkpoint_path = checkpoint_path
@@ -92,7 +93,8 @@ class DiffusionTrainer:
         self.unet.to(self.device)
 
         # --- Optimizer ---
-        self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.AdamW(self.unet.parameters(), lr=self.learning_rate, 
+                                          weight_decay=self.weight_decay)
 
         # --- Loss History ---
         self.history = {'train_loss': [], 'val_loss': []}
@@ -159,6 +161,8 @@ class DiffusionTrainer:
             
             # --- Backward Pass & Optimization ---
             loss.backward()
+            # clip gradients to avoid exploding gradients
+            torch.nn.utils.clip_grad_norm_(self.unet.parameters(), max_norm=1.0)
             self.log({'train_loss': loss.item(), 'epoch': self.current_epoch + i / len(self.train_loader)})
             self.optimizer.step()
 
