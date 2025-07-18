@@ -203,6 +203,9 @@ class TuringPatternDataset(Dataset):
         'holes': {'Du': 0.16, 'Dv': 0.08, 'F': 0.039, 'k': 0.058},
         'chaos': {'Du': 0.10, 'Dv': 0.05, 'F': 0.026, 'k': 0.051},
         'maze': {'Du': 0.16, 'Dv': 0.08, 'F': 0.029, 'k': 0.057},
+
+        # Interesting patterns
+        'life': {'Du': 0.16, 'Dv': 0.08, 'F': 0.006, 'k': 0.0450},
         
         # Additional patterns from various sources
         'bubbles': {'Du': 0.16, 'Dv': 0.08, 'F': 0.090, 'k': 0.059},
