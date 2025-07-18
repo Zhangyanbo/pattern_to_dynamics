@@ -1,0 +1,42 @@
+{
+    "sample_size": 32,
+    "sample_rate": null,
+    "in_channels": 1,
+    "out_channels": 1,
+    "extra_in_channels": 0,
+    "time_embedding_type": "fourier",
+    "flip_sin_to_cos": true,
+    "use_timestep_embedding": false,
+    "freq_shift": 0.0,
+    "down_block_types": [
+        "DownBlock1D",
+        "AttnDownBlock1D"
+    ],
+    "up_block_types": [
+        "AttnUpBlock1D",
+        "UpBlock1D"
+    ],
+    "mid_block_type": "UNetMidBlock1D",
+    "out_block_type": null,
+    "block_out_channels": [
+        32,
+        64
+    ],
+    "act_fn": null,
+    "norm_num_groups": 8,
+    "layers_per_block": 1,
+    "downsample_each_block": false,
+    "_use_default_values": [
+        "downsample_each_block",
+        "use_timestep_embedding",
+        "extra_in_channels",
+        "mid_block_type",
+        "flip_sin_to_cos",
+        "sample_rate",
+        "act_fn",
+        "out_block_type",
+        "freq_shift",
+        "norm_num_groups",
+        "time_embedding_type"
+    ]
+}
