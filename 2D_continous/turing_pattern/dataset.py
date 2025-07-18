@@ -99,7 +99,7 @@ class GrayScottSimulator(nn.Module):
         
         return u_next, v_next
     
-    def forward(self, u, v, steps=1):
+    def forward(self, u, v, steps=1, trace=False):
         """
         Evolve the Gray-Scott model for multiple steps.
         
@@ -117,8 +117,12 @@ class GrayScottSimulator(nn.Module):
         
         for _ in range(steps):
             u, v = self.step(u, v)
-            u_states.append(u)
-            v_states.append(v)
+            if trace:
+                u_states.append(u)
+                v_states.append(v)
+            else:
+                u_states[0] = u
+                v_states[0] = v
         
         return torch.stack(u_states, dim=1), torch.stack(v_states, dim=1)
 
@@ -204,7 +208,7 @@ class TuringPatternDataset(Dataset):
         'chaos': {'Du': 0.10, 'Dv': 0.05, 'F': 0.026, 'k': 0.051},
         'maze': {'Du': 0.16, 'Dv': 0.08, 'F': 0.029, 'k': 0.057},
 
-        # Interesting patterns
+        # Interesting patterns, often needs 128 x 128 resolution
         'life': {'Du': 0.16, 'Dv': 0.08, 'F': 0.006, 'k': 0.0450},
         
         # Additional patterns from various sources
