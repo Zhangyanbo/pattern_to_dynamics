@@ -6,6 +6,8 @@ from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import wandb
+from transformers import get_cosine_schedule_with_warmup
+from diffusers.training_utils import compute_snr
 
 
 class Logger:
@@ -64,8 +66,8 @@ class DiffusionTrainer:
         checkpoint_path (str): Path to save the trained model checkpoint.
     """
     def __init__(self, unet: UNet2DModel, scheduler: DDPMScheduler, dataset: torch.utils.data.Dataset,
-                 epochs: int = 100, learning_rate: float = 1e-4, batch_size: int = 32, weight_decay: float = 1e-5,
-                 task_name: str = 'diffusion', use_wandb: bool = False,
+                 epochs: int = 100, learning_rate: float = 1e-4, batch_size: int = 32, weight_decay: float = 0.01,
+                 task_name: str = 'diffusion', use_wandb: bool = False, warmup_steps: int = 500, gamma: float = 5,
                  device: str = 'cuda', validation_split: float = 0.1, checkpoint_path: str = 'unet_checkpoint.pth'):
 
         # --- Initialization ---
@@ -81,8 +83,8 @@ class DiffusionTrainer:
         self.logger = Logger()
         self.use_wandb = use_wandb
         self.task_name = task_name
-
-        self.wandb_setup()
+        self.warmup_steps = warmup_steps
+        self.gamma = gamma
 
         # --- Device Setup ---
         if device == 'cuda' and not torch.cuda.is_available():
@@ -92,9 +94,8 @@ class DiffusionTrainer:
             self.device = device
         self.unet.to(self.device)
 
-        # --- Optimizer ---
-        self.optimizer = torch.optim.AdamW(self.unet.parameters(), lr=self.learning_rate, 
-                                          weight_decay=self.weight_decay)
+        # --- WandB Setup ---
+        self.wandb_setup()
 
         # --- Loss History ---
         self.history = {'train_loss': [], 'val_loss': []}
@@ -113,6 +114,13 @@ class DiffusionTrainer:
                     config=dict(
                         learning_rate=self.learning_rate,
                         batch_size=self.batch_size,
+                        epochs=self.epochs,
+                        validation_split=self.validation_split,
+                        device=self.device,
+                        checkpoint_path=self.checkpoint_path,
+                        warmup_steps=self.warmup_steps,
+                        weight_decay=self.weight_decay,
+                        task_name=self.task_name
                     ),
                 )
 
@@ -141,6 +149,8 @@ class DiffusionTrainer:
 
         i = 0
         for batch in progress_bar:
+            self.optimizer_scheduler.step()
+            
             clean_images = batch.to(self.device)
             
             # 1. Sample noise
@@ -148,6 +158,8 @@ class DiffusionTrainer:
             
             # 2. Sample a random timestep for each image
             timesteps = torch.randint(0, self.scheduler.config.num_train_timesteps, (clean_images.shape[0],), device=self.device).long()
+            snr = compute_snr(self.scheduler, timesteps)
+            weights = torch.clamp(snr, max=self.gamma) / snr
             
             # 3. Add noise to the clean images
             noisy_images = self.scheduler.add_noise(clean_images, noise, timesteps)
@@ -157,13 +169,14 @@ class DiffusionTrainer:
             noise_pred = self.unet(noisy_images, timesteps, return_dict=False)[0]
             
             # --- Loss Calculation ---
-            loss = F.mse_loss(noise_pred, noise)
+            base_loss = (noise_pred - noise).pow(2).mean(dim=(1,2,3))
+            loss = (base_loss * weights).mean()
             
             # --- Backward Pass & Optimization ---
             loss.backward()
             # clip gradients to avoid exploding gradients
             torch.nn.utils.clip_grad_norm_(self.unet.parameters(), max_norm=1.0)
-            self.log({'train_loss': loss.item(), 'epoch': self.current_epoch + i / len(self.train_loader)})
+            self.log({'train_loss': base_loss.mean().item(), 'epoch': self.current_epoch + i / len(self.train_loader), 'lr': self.optimizer.param_groups[0]['lr']})
             self.optimizer.step()
 
             i += 1
@@ -186,12 +199,15 @@ class DiffusionTrainer:
                 clean_images = batch.to(self.device)
                 noise = torch.randn_like(clean_images)
                 timesteps = torch.randint(0, self.scheduler.config.num_train_timesteps, (clean_images.shape[0],), device=self.device).long()
+                snr = compute_snr(self.scheduler, timesteps)
+                weights = torch.clamp(snr, max=self.gamma) / snr
                 noisy_images = self.scheduler.add_noise(clean_images, noise, timesteps)
                 
                 noise_pred = self.unet(noisy_images, timesteps, return_dict=False)[0]
-                loss = F.mse_loss(noise_pred, noise)
-                
-                total_loss += loss.item()
+                base_loss = (noise_pred - noise).pow(2).mean(dim=(1,2,3))
+                loss = (base_loss * weights).mean()
+
+                total_loss += base_loss.mean().item()
                 progress_bar.set_postfix({'val_loss': loss.item()})
 
         avg_val_loss = total_loss / len(self.val_loader)
@@ -223,16 +239,28 @@ class DiffusionTrainer:
         self._split_dataset()
         self._create_dataloaders()
 
+        self.optimizer = torch.optim.AdamW(self.unet.parameters(), lr=self.learning_rate, 
+                                          weight_decay=self.weight_decay)
+        self.optimizer_scheduler = get_cosine_schedule_with_warmup(
+            self.optimizer,
+            num_warmup_steps=self.warmup_steps,
+            num_training_steps=self.epochs * len(self.train_loader)
+        )
+
         for epoch in range(1, self.epochs + 1):
             self.current_epoch = epoch
             
             avg_train_loss = self._train_epoch()
             avg_val_loss = self._validate_epoch()
-            self.log_generated_images()
 
             self.logger.step()
             
             print(f"Epoch {epoch}/{self.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+
+            if (epoch + 1) % int(self.epochs / 10) == 0:
+                print(f"Saving checkpoint for epoch {epoch}...")
+                self.log_generated_images()
+                self.save_model()
 
         print("Training finished.")
         self.save_model()
