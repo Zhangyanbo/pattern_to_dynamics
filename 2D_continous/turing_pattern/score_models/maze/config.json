@@ -1,0 +1,14 @@
+{
+    "epochs": 30,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 1e-05,
+    "device": "cuda",
+    "warmup_steps": 500,
+    "validation_split": 0.1,
+    "checkpoint_path": "./turing_pattern/score_models/maze/",
+    "use_wandb": true,
+    "log_rate": 10,
+    "num_checkpoints": 10,
+    "current_epoch": 29
+}
