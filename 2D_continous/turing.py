@@ -22,7 +22,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Train diffusion model on Turing patterns")
-    parser.add_argument("-m", type=str, default='waves', choices=['waves', 'life'], help="Model type")
+    parser.add_argument("-m", type=str, default='waves', help="Model type")
     parser.add_argument("-n", type=int, default=30, help="Number of training epochs")
     parser.add_argument("-b", type=int, default=64, help="Batch size for training")
     parser.add_argument("-l", type=float, default=1e-3, help="Learning rate for optimizer")
