@@ -29,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument("--wb", action='store_true', help="Use wandb for training")
     parser.add_argument("-a", type=float, default=0.8, help="Alpha value for diffusion model")
     parser.add_argument('--warmup', type=int, default=500, help="Number of warmup steps for learning rate scheduler")
+    parser.add_argument('--plot_channel', type=int, default=0, help="Channel to plot during training")
 
     args = parser.parse_args()
 
@@ -44,6 +45,7 @@ if __name__ == "__main__":
         num_checkpoints=10,
         warmup_steps=args.warmup,
         use_wandb=args.wb,
+        plot_channel=args.plot_channel,
     )
 
     train_diffusion(args.m, args.a, trainer_config)

@@ -153,6 +153,7 @@ class ScoreTrainer:
             log_rate: int = 10,
             num_checkpoints: int = 5,
             warmup_steps: int = 500,
+            plot_channel: int = 0,
             use_wandb: bool = False):
         """
         Initializes the Trainer with a model, optimizer, and loss function.
@@ -176,6 +177,7 @@ class ScoreTrainer:
         self.use_wandb = use_wandb
         self.log_rate = log_rate
         self.num_checkpoints = num_checkpoints
+        self.plot_channel = plot_channel
 
         # prepare training
         self.train_loader, self.val_loader = self._create_data_loaders()
@@ -344,13 +346,13 @@ class ScoreTrainer:
 
         fig, ax = plt.subplots(1, 3, dpi=300, figsize=(10, 5))
 
-        ax[0].imshow(x[0, 0].cpu())
+        ax[0].imshow(x[0, self.plot_channel].cpu())
         ax[0].set_title("Original")
 
-        ax[1].imshow(x_t[0, 0].cpu())
+        ax[1].imshow(x_t[0, self.plot_channel].cpu())
         ax[1].set_title("Noisy")
 
-        ax[2].imshow(x0_est[0, 0].cpu())
+        ax[2].imshow(x0_est[0, self.plot_channel].cpu())
         ax[2].set_title("Denoised")
 
         if self.use_wandb:
