@@ -1,35 +1,19 @@
 import torch
+from torch import vmap
+from torch.func import jvp, vmap
 
-
-def _hutchinson_estimate(vjp_func, x, z):
-    vjp = vjp_func(z)[0]
-    return torch.einsum('nd, nd -> n', vjp, z)
-
-def hutchinson_estimate(model, x, num_samples=2):
-    """
-    Calculate ∇·model(x) using Hutchinson's trace estimator.
-
-    Args:
-        model: The model to compute the gradient for.
-        x: Input tensor for which to compute the gradient.
-        num_samples: Number of samples to use for the estimation.
-    
-    Returns:
-        ∇·model(x): The estimated divergence of the model at x.
-        model(x): The model's output at x.
-    
-    [NOTE] The x input should be a tensor of shape (batch_size, dim).
-    When dealing with 2D or other higher-dimensional data, ensure
-    that the input is flattened appropriately before passing it to 
-    this function. Accordingly, the model should also be designed to handle
-    such flattened inputs.
-    """
-    output, vjp_func= torch.func.vjp(model, x)
+def hutchinson_estimate(model, x, num_samples: int = 64):
     z = torch.randn((num_samples, *x.shape), device=x.device)
-    est = torch.vmap(_hutchinson_estimate, (None, None, 0))(vjp_func, x, z)
-    return est.mean(dim=0), output
 
-def div_estimate(flow_model, diff_model, x, num_samples=2):
+    def single(z_i):
+        y, jvp_out = jvp(model, (x,), (z_i,))
+        return (jvp_out * z_i).sum(-1), y
+
+    div_samples, y_all = vmap(single)(z)
+    return div_samples.mean(0), y_all[0]
+
+
+def div_estimate(flow_model, diff_model, x, num_samples=2, alpha=0.8):
     """
     Calculate ∇·(v(x) * p(x)), where v(x) is the flow model and p(x) is
     represented implicitly by the score model.
@@ -41,7 +25,7 @@ def div_estimate(flow_model, diff_model, x, num_samples=2):
     """
     num_batch = x.shape[0]
     with torch.no_grad():
-        s = -diff_model(x) # [NOTE] ∇log(p(x)) = -Ɛ(x) / (1 - alpha_t).sqrt() according to the Tweedie equation
+        s = -diff_model(x) / ((1 - alpha) ** 0.5) # [NOTE] ∇log(p(x)) = -Ɛ(x) / (1 - alpha_t).sqrt() according to the Tweedie equation
     div_term, v = hutchinson_estimate(flow_model, x, num_samples=num_samples)
     oth_term = torch.einsum('nd, nd -> n', v, s)
 
