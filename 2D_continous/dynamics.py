@@ -1,6 +1,23 @@
 from tqdm import tqdm
 from transformers import get_cosine_schedule_with_warmup
 import wandb
+import torch
+import torch.nn as nn
+from probflow import Diffuser, div_estimate
+
+
+class Wrapper2D(nn.Module):
+    # convert vector input into [batch, *shape]
+    def __init__(self, model: nn.Module, shape: tuple):
+        super(Wrapper2D, self).__init__()
+        self.model = model
+        self.shape = shape
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        prefix_shape = x.shape[:-1]
+        x = x.reshape(-1, *self.shape)
+        y = self.model(x)
+        return y.reshape(*prefix_shape, -1)
 
 
 class Trainer:
