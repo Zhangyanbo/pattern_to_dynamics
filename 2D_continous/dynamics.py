@@ -31,6 +31,7 @@ class Trainer:
         self.num_samples = num_samples
         self.dataset = dataset
         self.diffuser = Diffuser(alpha=alpha)
+        self.alpha = alpha
 
         self.lr = lr
         self.weight_decay = weight_decay
@@ -49,7 +50,8 @@ class Trainer:
     
     def estimate(self, x):
         x = x.reshape(x.shape[0], -1)
-        return div_estimate(self.flow_model, self.score_model, x, num_samples=self.num_samples)
+        return div_estimate(self.flow_model, self.score_model, x, num_samples=self.num_samples, 
+                            alpha=self.alpha)
     
     def setup_wandb(self):
         if self.use_wandb:
@@ -82,7 +84,7 @@ class Trainer:
                 optimizer.zero_grad()
                 
                 output = self.estimate(batch)
-                loss = lf(output['div(pv)'], torch.zeros_like(output['div(pv)'])) / self.dim
+                loss = lf(output['div(pv)'] / self.dim, torch.zeros_like(output['div(pv)']))
                 loss.backward()
 
                 if self.use_wandb:
