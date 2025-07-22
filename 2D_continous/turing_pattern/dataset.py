@@ -241,7 +241,7 @@ class TuringPatternDataset(Dataset):
         device: str = "cpu",
         mode: str = "precompute",
         chunk: int = 32,
-        normalize: bool = True,
+        normalize: bool = False,
         return_channel: str = 'both',  # 'u', 'v', or 'both'
         precomputed_data: torch.Tensor = None,
         mu: float = 0.0,
