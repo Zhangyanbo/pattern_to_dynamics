@@ -100,7 +100,7 @@ class VPJBatchNorm2d(nn.BatchNorm2d):
         # ----------------------------------------------
         # 2. Normalize + (optional) Affine
         # ----------------------------------------------
-        mean = mean.view(1, -1, 1, 1)     # [1, C, 1, 1] 便于广播
+        mean = mean.view(1, -1, 1, 1)     # [1, C, 1, 1] for broadcasting
         var  = var.view (1, -1, 1, 1)
 
         normalized = (input - mean) / torch.sqrt(var + self.eps)
