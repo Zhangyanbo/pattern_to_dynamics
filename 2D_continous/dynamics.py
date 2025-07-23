@@ -8,15 +8,16 @@ from probflow import Diffuser, div_estimate
 
 class Wrapper2D(nn.Module):
     # convert vector input into [batch, *shape]
-    def __init__(self, model: nn.Module, shape: tuple):
+    def __init__(self, model: nn.Module, shape: tuple, gaussian_weight: float = 0.0):
         super(Wrapper2D, self).__init__()
         self.model = model
         self.shape = shape
+        self.gaussian_weight = gaussian_weight
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         prefix_shape = x.shape[:-1]
         x = x.reshape(-1, *self.shape)
-        y = self.model(x)
+        y = self.model(x) + self.gaussian_weight * x
         return y.reshape(*prefix_shape, -1)
 
 
@@ -29,21 +30,26 @@ class Trainer:
                 weight_decay=1e-4, 
                 alpha=0.8, 
                 gradient_accumulation_steps=1,
-                warmup_steps=500):
+                schedule:bool=False,
+                gaussian_weight=0.0,
+                warmup_steps=500
+                ):
         self._check_flow_model(flow_model)
         self.flow_model = Wrapper2D(flow_model, shape).to(device)
-        self.score_model = Wrapper2D(score_model, shape).to(device)
+        self.score_model = Wrapper2D(score_model, shape, gaussian_weight).to(device)
         self.device = device
         self.num_samples = num_samples
         self.dataset = dataset
         self.diffuser = Diffuser(alpha=alpha)
         self.alpha = alpha
+        self.schedule = schedule
 
         self.lr = lr
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.weight_decay = weight_decay
         self.warmup_steps = warmup_steps
         self.use_wandb = use_wandb
+        self.guassian_weight = gaussian_weight
 
         self.dim = 1
         for s in shape:
@@ -77,6 +83,11 @@ class Trainer:
             lr=self.lr, 
             weight_decay=self.weight_decay)
         dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
+        if self.schedule:
+            self.scheduler = get_cosine_schedule_with_warmup(
+                optimizer, 
+                num_warmup_steps=self.warmup_steps, 
+                num_training_steps=epochs * len(dataloader))
         self.flow_model.train()
 
         lf = nn.MSELoss()
@@ -87,6 +98,8 @@ class Trainer:
             for batch in tqdm(dataloader, desc=f"Training Epoch {epoch+1}/{epochs}"):
                 step += 1
                 batch = batch.to(self.device)
+                if self.schedule:
+                    self.scheduler.step()
                 
                 output = self.estimate(batch)
                 loss = lf(output['div(pv)'] / self.dim ** 0.5, torch.zeros_like(output['div(pv)']))
