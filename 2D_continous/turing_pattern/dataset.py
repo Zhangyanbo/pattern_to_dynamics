@@ -241,12 +241,9 @@ class TuringPatternDataset(Dataset):
         device: str = "cpu",
         mode: str = "precompute",
         chunk: int = 32,
-        normalize: bool = False,
+        normalization: bool = False,
         return_channel: str = 'both',  # 'u', 'v', or 'both'
         precomputed_data: torch.Tensor = None,
-        mu: float = 0.0,
-        std: float = 1.0,
-        tanh_normalize: bool = True,
     ):
         """
         Args:
@@ -275,9 +272,7 @@ class TuringPatternDataset(Dataset):
         self.device = device
         self.mode = mode
         self.return_channel = return_channel
-        self.mu = mu
-        self.std = std
-        self.tanh_normalize = tanh_normalize
+        self.normalization = normalization
         
         # Use preset parameters if specified
         if pattern_preset and pattern_preset in self.PRESETS:
@@ -302,8 +297,7 @@ class TuringPatternDataset(Dataset):
         elif mode == "precompute":
             # Generate data through simulation
             self.data = self._precompute(chunk)
-            if normalize:
-                self.data = self.normalize(self.data)
+            self.data = self.normalize(self.data)
         elif mode != "online":
             raise ValueError("mode must be 'precompute' or 'online'")
     
@@ -330,8 +324,7 @@ class TuringPatternDataset(Dataset):
             'mode': self.mode,
             'return_channel': self.return_channel,
             'params': self.params,
-            'mu': getattr(self, 'mu', 0.0),
-            'std': getattr(self, 'std', 1.0),
+            'normalization': self.normalization
         }
         
         # Include precomputed data if available
@@ -378,8 +371,7 @@ class TuringPatternDataset(Dataset):
             mode=save_data['mode'],
             return_channel=save_data['return_channel'],
             precomputed_data=save_data.get('data', None),
-            mu=save_data['mu'],
-            std=save_data['std']
+            normalization=save_data['normalization']
         )
         
         print(f"Dataset loaded from {filepath}")
@@ -398,25 +390,22 @@ class TuringPatternDataset(Dataset):
         else:  # online
             return self._simulate(1).squeeze(0)
     
-    def normalize(self, x):
-        """Normalize data to zero mean and unit variance."""
+    @staticmethod
+    def _mu_std(x):
         mu = x.transpose(0, 1).reshape(2, -1).mean(dim=-1).reshape(1, 2, 1, 1)
         std = x.transpose(0, 1).reshape(2, -1).std(dim=-1).reshape(1, 2, 1, 1)
-        self.mu, self.std = mu, std
-        x = (x - mu) / (std + 1e-5)
-        if self.tanh_normalize:
-            x = torch.tanh(x)
+        return mu, std
+    
+    def normalize(self, x):
+        """Normalize data to zero mean and unit variance."""
+        if self.normalization:
+            x = x * 2 - 1 # scale to [-1, 1]
         return x
     
     def denormalize(self, x):
         """Reverse normalization."""
-        if self.tanh_normalize:
-            x = torch.atanh(x)
-        if hasattr(self, 'mu') and hasattr(self, 'std'):
-            x = x * (self.std + 1e-5) + self.mu
-        else:
-            # If mu/std not set, assume no normalization was done
-            x = x * (1.0 + 1e-5) + 0.0
+        if self.normalization:
+            x = (x + 1) / 2  # scale back to [0, 1]
         return x
     
     @torch.no_grad()

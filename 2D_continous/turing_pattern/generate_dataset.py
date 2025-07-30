@@ -14,7 +14,6 @@ if __name__ == "__main__":
     parser.add_argument("--normalize", action='store_true', help="Normalize the dataset")
     parser.add_argument("--steps", type=int, default=2000, help="Number of simulation steps")
     parser.add_argument("--chunk", type=int, default=512, help="Chunk size for processing")
-    parser.add_argument("--tanh", action='store_true', help="Use tanh normalization")
 
     args = parser.parse_args()
 
@@ -37,8 +36,7 @@ if __name__ == "__main__":
             steps=args.steps,
             device='cuda' if args.cuda else 'cpu',
             chunk=args.chunk,
-            normalize=args.normalize,
-            tanh_normalize=args.tanh
+            normalization=args.normalize,
         )
 
         # Save the dataset to a file
