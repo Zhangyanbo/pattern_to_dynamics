@@ -7,6 +7,7 @@ import random
 import matplotlib.pyplot as plt
 from transformers import get_cosine_schedule_with_warmup
 import wandb
+from diffusers import UNet2DModel
 
 
 class Diffuser:
@@ -45,17 +46,15 @@ class ResNet2DBlock(nn.Module):
                 kernel_size=kernel_size,
                 padding=padding,
                 padding_mode='circular',
-                bias=False
             ),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            nn.Tanh(),
             nn.Conv2d(
                 out_channels,
                 out_channels,
                 kernel_size=kernel_size,
                 padding=padding,
                 padding_mode='circular',
-                bias=False
             ),
             nn.BatchNorm2d(out_channels)
         )
@@ -68,7 +67,6 @@ class ResNet2DBlock(nn.Module):
                     in_channels,
                     out_channels,
                     kernel_size=1, # 1x1 conv to match channel depth
-                    bias=False
                 ),
                 nn.BatchNorm2d(out_channels)
             )
@@ -112,7 +110,7 @@ class ResNet2D(nn.Module):
         # --- Initial Convolution Layer ---
         self.initial_layer = nn.Sequential(
             nn.Conv2d(in_channels, block_channels[0], kernel_size=2 * initial_r + 1,
-                      padding=initial_r, padding_mode='circular', bias=False),
+                      padding=initial_r, padding_mode='circular'),
             nn.BatchNorm2d(block_channels[0]),
             nn.ReLU(inplace=True)
         )
@@ -138,6 +136,12 @@ class ResNet2D(nn.Module):
         x = self.blocks(x)
         x = self.final_layer(x)
         return x
+
+
+class UNet2D(UNet2DModel):
+    def forward(self, sample) -> torch.Tensor:
+        output = super().forward(sample, timestep=torch.zeros(sample.size(0), device=sample.device))
+        return output.sample
 
 
 class ScoreTrainer:
