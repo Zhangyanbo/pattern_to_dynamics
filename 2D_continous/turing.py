@@ -83,9 +83,10 @@ if __name__ == "__main__":
     parser.add_argument("--batch", '-b', type=int, default=64, help="Batch size for training")
     parser.add_argument("--lr", '-l', type=float, default=1e-3, help="Learning rate for optimizer")
     parser.add_argument("--wb", action='store_true', help="Use wandb for training")
-    parser.add_argument("--alpha", "-a", type=float, default=0.8, help="Alpha value for diffusion model")
+    parser.add_argument("--alpha", "-a", type=float, default=0.8, help="Alpha value for score model")
     parser.add_argument('--warmup', type=int, default=500, help="Number of warmup steps for learning rate scheduler")
     parser.add_argument('--plot_channel', type=int, default=0, help="Channel to plot during training")
+    parser.add_argument('--sampling', choices=['ddpm', 'ddim'], default='ddpm', help="Sampling method for diffusion model")
 
     args = parser.parse_args()
 
@@ -111,12 +112,13 @@ if __name__ == "__main__":
             epochs=args.epoch, 
             batch_size=args.batch, 
             learning_rate=args.lr, 
-            weight_decay=1e-5, 
+            weight_decay=0.01, 
             device='cuda', 
             validation_split=0.1, 
             checkpoint_path=f'./turing_pattern/diffusion_models/{args.model}_checkpoint.pth', 
             warmup_steps=args.warmup,
             use_wandb=args.wb,
+            method=args.sampling
         )
 
         train_diffusion(args.model, args.alpha, trainer_config, network=args.network)
