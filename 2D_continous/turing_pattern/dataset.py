@@ -245,7 +245,8 @@ class TuringPatternDataset(Dataset):
         return_channel: str = 'both',  # 'u', 'v', or 'both'
         precomputed_data: torch.Tensor = None,
         mu: float = 0.0,
-        std: float = 1.0
+        std: float = 1.0,
+        tanh_normalize: bool = True,
     ):
         """
         Args:
@@ -276,6 +277,7 @@ class TuringPatternDataset(Dataset):
         self.return_channel = return_channel
         self.mu = mu
         self.std = std
+        self.tanh_normalize = tanh_normalize
         
         # Use preset parameters if specified
         if pattern_preset and pattern_preset in self.PRESETS:
@@ -401,11 +403,21 @@ class TuringPatternDataset(Dataset):
         mu = x.transpose(0, 1).reshape(2, -1).mean(dim=-1).reshape(1, 2, 1, 1)
         std = x.transpose(0, 1).reshape(2, -1).std(dim=-1).reshape(1, 2, 1, 1)
         self.mu, self.std = mu, std
-        return (x - mu) / (std + 1e-5)
+        x = (x - mu) / (std + 1e-5)
+        if self.tanh_normalize:
+            x = torch.tanh(x)
+        return x
     
     def denormalize(self, x):
         """Reverse normalization."""
-        return x * (self.std + 1e-5) + self.mu
+        if self.tanh_normalize:
+            x = torch.atanh(x)
+        if hasattr(self, 'mu') and hasattr(self, 'std'):
+            x = x * (self.std + 1e-5) + self.mu
+        else:
+            # If mu/std not set, assume no normalization was done
+            x = x * (1.0 + 1e-5) + 0.0
+        return x
     
     @torch.no_grad()
     def _simulate(self, batch_size: int) -> torch.Tensor:
