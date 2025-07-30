@@ -1,13 +1,14 @@
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset, random_split
-from diffusers import UNet2DModel, DDPMScheduler
+from diffusers import UNet2DModel, DDPMScheduler, DDIMScheduler, DDPMPipeline
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import wandb
 from transformers import get_cosine_schedule_with_warmup
-from diffusers.training_utils import compute_snr
+import inspect
 
 
 class Logger:
@@ -65,10 +66,22 @@ class DiffusionTrainer:
         validation_split (float): The fraction of the dataset to use for validation.
         checkpoint_path (str): Path to save the trained model checkpoint.
     """
-    def __init__(self, unet: UNet2DModel, scheduler: DDPMScheduler, dataset: torch.utils.data.Dataset,
-                 epochs: int = 100, learning_rate: float = 1e-4, batch_size: int = 32, weight_decay: float = 0.01,
-                 task_name: str = 'diffusion', use_wandb: bool = False, warmup_steps: int = 500, gamma: float = 5,
-                 device: str = 'cuda', validation_split: float = 0.1, checkpoint_path: str = 'unet_checkpoint.pth'):
+    def __init__(self, 
+                 unet: UNet2DModel, 
+                 scheduler: DDPMScheduler, 
+                 dataset: torch.utils.data.Dataset,
+                 epochs: int = 100, 
+                 learning_rate: float = 1e-4, 
+                 batch_size: int = 32, 
+                 weight_decay: float = 0.01,
+                 task_name: str = 'diffusion', 
+                 use_wandb: bool = False, 
+                 warmup_steps: int = 500, 
+                 device: str = 'cuda', 
+                 validation_split: float = 0.1, 
+                 checkpoint_path: str = 'unet_checkpoint.pth',
+                 method:str = 'ddim'
+                 ):
 
         # --- Initialization ---
         self.unet = unet
@@ -84,7 +97,7 @@ class DiffusionTrainer:
         self.use_wandb = use_wandb
         self.task_name = task_name
         self.warmup_steps = warmup_steps
-        self.gamma = gamma
+        self.method = method
 
         # --- Device Setup ---
         if device == 'cuda' and not torch.cuda.is_available():
@@ -147,6 +160,8 @@ class DiffusionTrainer:
         total_loss = 0.0
         progress_bar = tqdm(self.train_loader, desc=f"Epoch {self.current_epoch}/{self.epochs} [Training]")
 
+        lf = nn.MSELoss()
+
         i = 0
         for batch in progress_bar:
             self.optimizer_scheduler.step()
@@ -158,8 +173,6 @@ class DiffusionTrainer:
             
             # 2. Sample a random timestep for each image
             timesteps = torch.randint(0, self.scheduler.config.num_train_timesteps, (clean_images.shape[0],), device=self.device).long()
-            snr = compute_snr(self.scheduler, timesteps)
-            weights = torch.clamp(snr, max=self.gamma) / snr
             
             # 3. Add noise to the clean images
             noisy_images = self.scheduler.add_noise(clean_images, noise, timesteps)
@@ -169,14 +182,17 @@ class DiffusionTrainer:
             noise_pred = self.unet(noisy_images, timesteps, return_dict=False)[0]
             
             # --- Loss Calculation ---
-            base_loss = (noise_pred - noise).pow(2).mean(dim=(1,2,3))
-            loss = (base_loss * weights).mean()
-            
+            loss = lf(noise_pred, noise)
+
             # --- Backward Pass & Optimization ---
             loss.backward()
             # clip gradients to avoid exploding gradients
             torch.nn.utils.clip_grad_norm_(self.unet.parameters(), max_norm=1.0)
-            self.log({'train_loss': base_loss.mean().item(), 'epoch': self.current_epoch + i / len(self.train_loader), 'lr': self.optimizer.param_groups[0]['lr']})
+            self.log({
+                'train_loss': loss.mean().item(), 
+                'epoch': self.current_epoch + i / len(self.train_loader), 
+                'lr': self.optimizer.param_groups[0]['lr']
+                })
             self.optimizer.step()
 
             i += 1
@@ -194,20 +210,19 @@ class DiffusionTrainer:
         total_loss = 0.0
         progress_bar = tqdm(self.val_loader, desc=f"Epoch {self.current_epoch}/{self.epochs} [Validation]")
 
+        lf = nn.MSELoss()
+
         with torch.no_grad():
             for batch in progress_bar:
                 clean_images = batch.to(self.device)
                 noise = torch.randn_like(clean_images)
                 timesteps = torch.randint(0, self.scheduler.config.num_train_timesteps, (clean_images.shape[0],), device=self.device).long()
-                snr = compute_snr(self.scheduler, timesteps)
-                weights = torch.clamp(snr, max=self.gamma) / snr
                 noisy_images = self.scheduler.add_noise(clean_images, noise, timesteps)
                 
                 noise_pred = self.unet(noisy_images, timesteps, return_dict=False)[0]
-                base_loss = (noise_pred - noise).pow(2).mean(dim=(1,2,3))
-                loss = (base_loss * weights).mean()
+                loss = lf(noise_pred, noise)
 
-                total_loss += base_loss.mean().item()
+                total_loss += loss.item()
                 progress_bar.set_postfix({'val_loss': loss.item()})
 
         avg_val_loss = total_loss / len(self.val_loader)
@@ -215,23 +230,66 @@ class DiffusionTrainer:
         self.history['val_loss'].append(avg_val_loss)
         return avg_val_loss
     
+    @staticmethod
+    def _normalize_image(w):
+        if isinstance(w, np.ndarray):
+            w = torch.from_numpy(w).float()
+        u0 = w[0]
+        v0 = w[1]
+        # Normalize the image to [0, 1] range
+        u = (u0 - u0.min()) / (u0.max() - u0.min() + 1e-3)
+        v = (v0 - v0.min()) / (v0.max() - v0.min() + 1e-3)
+        img = torch.stack([u, v, (u + v) / 2])
+        return img
+    
     def log_generated_images(self):
-        if self.use_wandb:
-            # Generate a batch of images for logging
-            # shape = (1, 2, 128, 128)
-            generated_images = generate_images(
-                self.unet, self.scheduler, 
-                height=128, width=128, batch_size=1, 
-                num_inference_steps=1000, device=self.device
+        # Generate a batch of images for logging
+        # shape = (1, 2, 128, 128)
+        if self.method == 'ddpm':
+            scheduler = DDPMScheduler.from_config(
+                self.scheduler.config,
+                clip_sample_range=5,
+                rescale_betas_zero_snr=True
             )
-            # convert to a format suitable for logging
-            w = generated_images[0]
-            u = (w[0] - w[0].min()) / (w[0].max() - w[0].min() + 1e-3)
-            v = (w[1] - w[1].min()) / (w[1].max() - w[1].min() + 1e-3)
-            img = torch.stack([u, v, (u + v) / 2])
+        elif self.method == 'ddim':
+            scheduler = DDIMScheduler(
+                num_train_timesteps=100,
+                clip_sample_range=5,
+                timestep_spacing="trailing",
+                rescale_betas_zero_snr=True
+            )
+        else:
+            raise ValueError(f"Unknown method: {self.method}. Use 'ddpm' or 'ddim'.")
+        
+        # print(self.scheduler.config)
+        images = generate_images(
+            self.unet, scheduler,
+            height=128, width=128, batch_size=1,
+            eta=0.0,
+            num_inference_steps=100, device=self.device
+        )
+
+        # convert to a format suitable for logging
+        img = self._normalize_image(images[0])
+        img_real = self._normalize_image(self.dataset[0].to(self.device))
+
+        # Make plot
+        fig, ax = plt.subplots(1, 2, figsize=(10, 6))
+
+        ax[0].imshow(img_real.permute(1, 2, 0).cpu().numpy())
+        ax[0].axis('off')
+        ax[0].set_title("Real Image")
+        ax[1].imshow(img.permute(1, 2, 0).cpu().numpy())
+        ax[1].axis('off')
+        ax[1].set_title(f"Generated Image at Epoch {self.current_epoch}")
+        if self.use_wandb:
             # Log the generated images to wandb
             image = wandb.Image(img.cpu(), caption="Generated Image")
             wandb.log({"generated_image": image})
+        else:
+            # save the image using matplotlib
+            plt.savefig(f"sampled.png")
+            plt.close()
 
     def train(self):
         """The main training loop."""
@@ -257,7 +315,7 @@ class DiffusionTrainer:
             
             print(f"Epoch {epoch}/{self.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
 
-            if (epoch + 1) % int(self.epochs / 10) == 0:
+            if (epoch + 1) % max(1, int(self.epochs / 10)) == 0:
                 print(f"Saving checkpoint for epoch {epoch}...")
                 self.log_generated_images()
                 self.save_model()
@@ -267,6 +325,8 @@ class DiffusionTrainer:
 
     def save_model(self):
         """Saves the trained UNet model state dictionary."""
+        import os
+        os.makedirs(os.path.dirname(self.checkpoint_path), exist_ok=True)
         torch.save(self.unet.state_dict(), self.checkpoint_path)
         print(f"Model checkpoint saved to {self.checkpoint_path}")
 
@@ -289,53 +349,29 @@ def generate_images(
     height: int = 128,
     width: int = 128,
     batch_size: int = 4,
-    num_inference_steps: int = 1000,
-    device: str = 'cuda'
-) -> torch.Tensor:
-    """
-    Generates images by running the full reverse diffusion process.
+    num_inference_steps: int = 100,
+    device: str = "cuda",
+    eta: float = 0.0, 
+):
+    if device == "cuda" and not torch.cuda.is_available():
+        device = "cpu"
+    unet.to(device).eval()
 
-    Args:
-        unet (UNet2DModel): The trained UNet model to use for denoising.
-        scheduler (DDPMScheduler): The noise scheduler.
-        image_size (int): The size of the square images to generate.
-        batch_size (int): The number of images to generate in a batch.
-        num_inference_steps (int): The number of denoising steps.
-        device (str): The device to run the generation on ('cuda' or 'cpu').
-
-    Returns:
-        torch.Tensor: A tensor containing the generated images.
-    """
-    print("Starting image generation...")
-
-    # --- Device Setup ---
-    if device == 'cuda' and not torch.cuda.is_available():
-        print("CUDA not available, falling back to CPU.")
-        device = 'cpu'
-    unet.to(device)
-    unet.eval() # Set the model to evaluation mode
-
-    # --- Initial Noise ---
-    # Start with random noise that will be progressively denoised.
-    # The shape is (batch_size, num_channels, height, width)
-    image = torch.randn(
+    img = torch.randn(
         (batch_size, unet.config.in_channels, height, width),
         device=device,
     )
 
-    # --- Set Timesteps ---
-    # The scheduler will guide the denoising process over these timesteps.
-    scheduler.set_timesteps(num_inference_steps)
+    if isinstance(scheduler, DDIMScheduler):
+        arguments = {'eta': eta}
+    else:
+        arguments = {}
 
-    # --- Denoising Loop ---
-    progress_bar = tqdm(scheduler.timesteps, desc="Generating Images")
-    for t in progress_bar:
+    scheduler.set_timesteps(num_inference_steps, device=device)
+
+    for t in tqdm(scheduler.timesteps, desc="Sampling"):
         with torch.no_grad():
-            # 1. Predict the noise residual for the current timestep
-            noise_pred = unet(image, t, return_dict=False)[0]
+            model_output = unet(img, t).sample
+        img = scheduler.step(model_output, t, img, **arguments).prev_sample
 
-        # 2. Compute the previous noisy sample using the scheduler's step method
-        # This "denoises" the image by a small amount
-        image = scheduler.step(noise_pred, t, image, return_dict=False)[0]
-
-    return image
+    return img
