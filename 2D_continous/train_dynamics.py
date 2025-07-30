@@ -9,7 +9,7 @@ from turing_pattern import GrayScottSimulator, create_random_state, TuringPatter
 
 def load_score_model(name:str, device:str='cuda', freeze:bool=True) -> nn.Module:
     import os
-    model = ResNet2D(in_channels=2, block_channels=[16, 32, 64], block_rs=[1, 1, 2])
+    model = ResNet2D(in_channels=2, block_channels=[16, 32, 64, 128], block_rs=[1, 1, 2, 5])
     path = os.path.join(f'./turing_pattern/score_models/{name}/', 'model.pth')
     model.load_state_dict(torch.load(path, map_location=device))
     model.to(device)
@@ -99,6 +99,12 @@ if __name__ == "__main__":
                         help='Dataset to use for training the flow model.')
     parser.add_argument('-a', '--alpha', type=float, default=0.8,
                         help='Alpha value for the diffusion model.')
+    parser.add_argument('-s', '--schedule', action='store_true',
+                        help='Use cosine schedule for learning rate.')
+    parser.add_argument('-g', '--gaussian_weight', type=float, default=0.0,
+                        help='Weight for the Gaussian term in the score model.')
+    parser.add_argument('--sym', type=float, default=0.0,
+                        help='Symmetry penalty weight for the loss function.')
 
     args = parser.parse_args()
     dataset = TuringPatternDataset.load(f'./turing_pattern/data/{args.dataset}_128x128.pt')
@@ -109,13 +115,16 @@ if __name__ == "__main__":
         (2, 128, 128), # It is very important to set the correct input shape
         dataset=dataset, 
         use_wandb=True, 
-        lr=1e-3, 
+        lr=2e-4, 
         num_samples=8, 
         weight_decay=1e-5, 
         gradient_accumulation_steps=8,
+        schedule=args.schedule,
+        gaussian_weight=args.gaussian_weight,
+        symmetry_punalty=args.sym,
         alpha=args.alpha)
 
-    trainer.train(epochs=20, batch_size=128)
+    trainer.train(epochs=200, batch_size=128)
     # save flow_model
     import os
     os.makedirs('./turing_pattern/flow_models/', exist_ok=True)
