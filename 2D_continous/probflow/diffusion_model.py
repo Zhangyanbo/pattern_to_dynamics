@@ -80,7 +80,8 @@ class DiffusionTrainer:
                  device: str = 'cuda', 
                  validation_split: float = 0.1, 
                  checkpoint_path: str = 'unet_checkpoint.pth',
-                 method:str = 'ddim'
+                 method:str = 'ddim',
+                 clip_sample_range:float = 5.0,
                  ):
 
         # --- Initialization ---
@@ -98,6 +99,7 @@ class DiffusionTrainer:
         self.task_name = task_name
         self.warmup_steps = warmup_steps
         self.method = method
+        self.clip_sample_range = clip_sample_range
 
         # --- Device Setup ---
         if device == 'cuda' and not torch.cuda.is_available():
@@ -243,30 +245,31 @@ class DiffusionTrainer:
         return img
     
     def log_generated_images(self):
-        # Generate a batch of images for logging
-        # shape = (1, 2, 128, 128)
         if self.method == 'ddpm':
             scheduler = DDPMScheduler.from_config(
                 self.scheduler.config,
-                clip_sample_range=5,
+                clip_sample_range=self.clip_sample_range,
                 rescale_betas_zero_snr=True
             )
         elif self.method == 'ddim':
-            scheduler = DDIMScheduler(
-                num_train_timesteps=100,
-                clip_sample_range=5,
+            scheduler = DDIMScheduler.from_config(
+                self.scheduler.config,
+                clip_sample_range=self.clip_sample_range,
                 timestep_spacing="trailing",
                 rescale_betas_zero_snr=True
             )
         else:
             raise ValueError(f"Unknown method: {self.method}. Use 'ddpm' or 'ddim'.")
         
-        # print(self.scheduler.config)
         images = generate_images(
-            self.unet, scheduler,
-            height=128, width=128, batch_size=1,
+            self.unet, 
+            scheduler,
+            height=self.unet.config.sample_size, 
+            width=self.unet.config.sample_size, 
+            batch_size=1,
             eta=0.0,
-            num_inference_steps=100, device=self.device
+            num_inference_steps=self.scheduler.config['num_train_timesteps'], 
+            device=self.device
         )
 
         # convert to a format suitable for logging
@@ -282,13 +285,14 @@ class DiffusionTrainer:
         ax[1].imshow(img.permute(1, 2, 0).cpu().numpy())
         ax[1].axis('off')
         ax[1].set_title(f"Generated Image at Epoch {self.current_epoch}")
+
+        fig.tight_layout()
         if self.use_wandb:
             # Log the generated images to wandb
-            image = wandb.Image(img.cpu(), caption="Generated Image")
-            wandb.log({"generated_image": image})
+            wandb.log({"generated_image": fig})
         else:
             # save the image using matplotlib
-            plt.savefig(f"sampled.png")
+            plt.savefig(f"sampled.png", bbox_inches='tight')
             plt.close()
 
     def train(self):
