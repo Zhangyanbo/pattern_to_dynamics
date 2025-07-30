@@ -81,7 +81,7 @@ class DiffusionTrainer:
                  validation_split: float = 0.1, 
                  checkpoint_path: str = 'unet_checkpoint.pth',
                  method:str = 'ddim',
-                 clip_sample_range:float = 5.0,
+                 clip_sample_range:float = 1,
                  ):
 
         # --- Initialization ---
@@ -270,11 +270,11 @@ class DiffusionTrainer:
             eta=0.0,
             num_inference_steps=self.scheduler.config['num_train_timesteps'], 
             device=self.device
-        )
+        ).cpu()
 
         # convert to a format suitable for logging
         img = self._normalize_image(images[0])
-        img_real = self._normalize_image(self.dataset[0].to(self.device))
+        img_real = self._normalize_image(self.dataset[0])
 
         # Make plot
         fig, ax = plt.subplots(1, 2, figsize=(10, 6))
