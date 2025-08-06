@@ -11,8 +11,8 @@ def get_unet_score():
         in_channels=2,           # Game-of-Life: single channel
         out_channels=2,
 
-        down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D"),
-        up_block_types  =("UpBlock2D",   "UpBlock2D",   "UpBlock2D"),
+        down_block_types=("DownBlock2D", "DownBlock2D", "AttnDownBlock2D"),
+        up_block_types  =("AttnUpBlock2D",   "UpBlock2D",   "UpBlock2D"),
         block_out_channels=(16, 32, 64), # Channels per layer (>30x smaller than default)
 
         norm_num_groups=8,  # Reduced GroupNorm groups while maintaining stability
@@ -21,7 +21,6 @@ def get_unet_score():
 
 def get_unet_diffusion():
     unet = UNet2DModel(
-        # I/O -------------------------------------------------------------
         sample_size=128,          # Board 64x64; only needs to be multiple of 2**(levels-1)
         in_channels=2,           # Game-of-Life: single channel
         out_channels=2,
@@ -52,19 +51,21 @@ def train_score(model:str, alpha, trainer_config:dict, network:str='unet'):
 
     trainer.train()
 
-def train_diffusion(model:str, alpha, trainer_config:dict, network:str='unet'):
-    dataset = TuringPatternDataset.load(f'./turing_pattern/data/{model}_128x128.pt')
+def train_diffusion(model_name:str, alpha, trainer_config:dict, network:str='unet'):
+    dataset = TuringPatternDataset.load(f'./turing_pattern/data/{model_name}_128x128.pt')
     if network == 'unet':
         model = get_unet_diffusion()
     else:
         raise ValueError(f"Unsupported network type for training diffusion models: {network}")
     scheduler = DDPMScheduler(
         num_train_timesteps=100, 
+        beta_start=0.0001, beta_end=0.1,
         prediction_type="epsilon"
     )
 
     trainer = DiffusionTrainer(
         unet=model,
+        model_name=model_name,
         scheduler=scheduler,
         dataset=dataset,
         **trainer_config
@@ -85,8 +86,10 @@ if __name__ == "__main__":
     parser.add_argument("--wb", action='store_true', help="Use wandb for training")
     parser.add_argument("--alpha", "-a", type=float, default=0.8, help="Alpha value for score model")
     parser.add_argument('--warmup', type=int, default=500, help="Number of warmup steps for learning rate scheduler")
+    parser.add_argument('--lr_schedule', action='store_true', help="Use cosine learning rate schedule")
     parser.add_argument('--plot_channel', type=int, default=0, help="Channel to plot during training")
     parser.add_argument('--sampling', choices=['ddpm', 'ddim'], default='ddpm', help="Sampling method for diffusion model")
+    parser.add_argument('--ema', action='store_true', help="Use EMA for diffusion model")
 
     args = parser.parse_args()
 
@@ -112,13 +115,16 @@ if __name__ == "__main__":
             epochs=args.epoch, 
             batch_size=args.batch, 
             learning_rate=args.lr, 
+            task_name='turing_diffusion',
             weight_decay=0.01, 
             device='cuda', 
             validation_split=0.1, 
-            checkpoint_path=f'./turing_pattern/diffusion_models/{args.model}_checkpoint.pth', 
+            checkpoint_path=f'./turing_pattern/diffusion_models/{args.model}/', 
             warmup_steps=args.warmup,
             use_wandb=args.wb,
-            method=args.sampling
+            method=args.sampling,
+            lr_schedule=args.lr_schedule,
+            use_ema=args.ema,
         )
 
         train_diffusion(args.model, args.alpha, trainer_config, network=args.network)
