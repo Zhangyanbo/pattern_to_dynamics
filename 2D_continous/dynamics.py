@@ -8,41 +8,68 @@ from probflow import Diffuser, div_estimate
 
 class Wrapper2D(nn.Module):
     # convert vector input into [batch, *shape]
-    def __init__(self, model: nn.Module, shape: tuple, gaussian_weight: float = 0.0):
+    def __init__(self, model: nn.Module, shape: tuple, gaussian_weight: float = 0.0, timestep: int=None):
+        """
+        A wrapper for 2D models to handle vector inputs.
+
+        Args:
+            model (nn.Module): The model to wrap.
+            shape (tuple): The shape of the input tensor (excluding batch size).
+            gaussian_weight (float): Weight for the Gaussian term in the score model.
+        """
         super(Wrapper2D, self).__init__()
         self.model = model
         self.shape = shape
         self.gaussian_weight = gaussian_weight
+        self.timestep = timestep
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         prefix_shape = x.shape[:-1]
         x = x.reshape(-1, *self.shape)
-        y = self.model(x) + self.gaussian_weight * x
+        if self.timestep is None:
+            y = self.model(x)
+        else:
+            y = self.model(x, timestep=self.timestep)
+        
+        if not isinstance(y, torch.Tensor):
+            y = y.sample
+
+        if self.gaussian_weight > 0:
+            gaussian_term = self.gaussian_weight * x
+            y = y + gaussian_term
         return y.reshape(*prefix_shape, -1)
 
 
 class Trainer:
-    def __init__(self, flow_model, score_model, shape:tuple, dataset, 
+    def __init__(self, 
+                flow_model, 
+                score_model, 
+                scheduler,
+                shape:tuple, 
+                dataset, 
                 use_wandb:bool=False,
                 device='cuda', 
                 num_samples=2, 
+                diffuse_time_t=10,
                 lr=1e-3, 
                 weight_decay=1e-4, 
                 alpha=0.8, 
                 gradient_accumulation_steps=1,
                 schedule:bool=False,
                 gaussian_weight=0.0,
+                symmetry_punalty:float=0.0,
                 warmup_steps=500
                 ):
         self._check_flow_model(flow_model)
         self.flow_model = Wrapper2D(flow_model, shape).to(device)
-        self.score_model = Wrapper2D(score_model, shape, gaussian_weight).to(device)
+        self.score_model = Wrapper2D(score_model, shape, gaussian_weight, timestep=diffuse_time_t).to(device)
         self.device = device
         self.num_samples = num_samples
         self.dataset = dataset
-        self.diffuser = Diffuser(alpha=alpha)
+        self.diffuser = scheduler
         self.alpha = alpha
         self.schedule = schedule
+        self.diffuse_time_t = torch.LongTensor([diffuse_time_t]).to(device)
 
         self.lr = lr
         self.gradient_accumulation_steps = gradient_accumulation_steps
@@ -50,6 +77,7 @@ class Trainer:
         self.warmup_steps = warmup_steps
         self.use_wandb = use_wandb
         self.guassian_weight = gaussian_weight
+        self.symmetry_punalty = symmetry_punalty
 
         self.dim = 1
         for s in shape:
@@ -62,19 +90,30 @@ class Trainer:
                 raise ValueError("ReLU activations don't support 2nd-order differentiation. Use SiLU or other differentiable activations instead.")
     
     def estimate(self, x):
-        xt = self.diffuser.add_noise(x, torch.randn_like(x))
-        x = x.reshape(x.shape[0], -1)
-        return div_estimate(self.flow_model, self.score_model, x, num_samples=self.num_samples, 
-                            alpha=self.alpha)
+        xt = self.diffuser.add_noise(x, torch.randn_like(x), self.diffuse_time_t)
+        xt = xt.reshape(xt.shape[0], -1)
+        alpha = self.diffuser.add_noise(torch.ones(1), torch.zeros(1), self.diffuse_time_t).pow(2).item()
+        return div_estimate(
+                            self.flow_model, 
+                            self.score_model, 
+                            xt, 
+                            num_samples=self.num_samples, 
+                            alpha=alpha, 
+                            )
     
     def setup_wandb(self):
         if self.use_wandb:
             wandb.init(project='pattern_to_dynamics', config={
                 'lr': self.lr,
                 'weight_decay': self.weight_decay,
-                'alpha': self.diffuser.alpha,
+                'diffuser': dict(self.diffuser.config),
                 'num_samples': self.num_samples,
             })
+    
+    def symmetry_loss(self, score, v):
+        # l = score^\top \cdot v, score / v.shape = [batch, n]
+        num_elements = score.numel()
+        return torch.einsum('bn, bn -> b', score, v).sum() / num_elements
     
     def train(self, epochs=10, batch_size=32):
         self.setup_wandb()
@@ -103,10 +142,22 @@ class Trainer:
                 
                 output = self.estimate(batch)
                 loss = lf(output['div(pv)'] / self.dim ** 0.5, torch.zeros_like(output['div(pv)']))
+                if self.symmetry_punalty > 0:
+                    loss_symmetry = self.symmetry_loss(output['score'], output['v'])
+                    loss += self.symmetry_punalty * loss_symmetry
                 loss.backward()
 
                 if self.use_wandb:
-                    wandb.log({'loss': loss.item(), 'epoch': epoch+i/len(dataloader), 'lr': optimizer.param_groups[0]['lr']})
+                    wandb.log(
+                        {
+                            'loss': loss.item(), 
+                            'epoch': epoch+i/len(dataloader), 
+                            'lr': optimizer.param_groups[0]['lr'], 
+                            'loss_symmetry': loss_symmetry.item() if self.symmetry_punalty > 0 else 0,
+                            'v_norm': output['v'].pow(2).mean().sqrt().item(),
+                            '|div(v)|': output['div(v)'].pow(2).mean().sqrt().item(),
+                            '|v@s|': output['v@s'].pow(2).mean().sqrt().item(),
+                        })
                 
                 if (step + 1) % self.gradient_accumulation_steps == 0:
                     optimizer.step()
