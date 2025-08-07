@@ -5,20 +5,18 @@ import matplotlib.pyplot as plt
 from probflow import Diffuser, ResNet2D, VPJBatchNorm2d, VPJBatchNorm, div_estimate
 from dynamics import Trainer
 from turing_pattern import GrayScottSimulator, create_random_state, TuringPatternDataset
+from diffusers import UNet2DModel, DDPMScheduler
 
 
 def load_score_model(name:str, device:str='cuda', freeze:bool=True) -> nn.Module:
-    import os
-    model = ResNet2D(in_channels=2, block_channels=[16, 32, 64, 128], block_rs=[1, 1, 2, 5])
-    path = os.path.join(f'./turing_pattern/score_models/{name}/', 'model.pth')
-    model.load_state_dict(torch.load(path, map_location=device))
-    model.to(device)
+    model = UNet2DModel.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
+    scheduler = DDPMScheduler.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
     model.eval()
 
     if freeze:
         for param in model.parameters():
             param.requires_grad = False
-    return model
+    return model, scheduler
 
 
 class SymConv2d_3(nn.Module):
@@ -48,11 +46,16 @@ class SymConv2d_3(nn.Module):
         self.corner = nn.Parameter(torch.Tensor(out_channels, in_channels))
         self.cross = nn.Parameter(torch.Tensor(out_channels, in_channels))
         self.init_weights()
-    
-    def init_weights(self):
-        nn.init.xavier_uniform_(self.center)
-        nn.init.xavier_uniform_(self.corner)
-        nn.init.xavier_uniform_(self.cross)
+
+    @torch.no_grad()
+    def init_weights(self, nonlinearity='relu', a=0.0):
+        gain = nn.init.calculate_gain(nonlinearity, a)
+        fan_in = self.in_channels * 9
+        bound = (gain**2 / (self.in_channels * 9) * 3) ** 0.5
+
+        nn.init.uniform_(self.center, -bound, bound)
+        nn.init.uniform_(self.corner, -bound, bound)
+        nn.init.uniform_(self.cross,  -bound, bound)
         nn.init.zeros_(self.bias)
     
     @property
@@ -76,10 +79,8 @@ class FlowModel(nn.Module):
         super(FlowModel, self).__init__()
         self.cnn = nn.Sequential(
             SymConv2d_3(2, hidden_channels),
-            # VPJBatchNorm2d(hidden_channels, affine=False),
             nn.SiLU(),
             nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1, padding=0),
-            # VPJBatchNorm2d(hidden_channels, affine=False),
             nn.SiLU(),
             nn.Conv2d(hidden_channels, 2, kernel_size=1, padding=0),
         )
@@ -105,17 +106,24 @@ if __name__ == "__main__":
                         help='Weight for the Gaussian term in the score model.')
     parser.add_argument('--sym', type=float, default=0.0,
                         help='Symmetry penalty weight for the loss function.')
+    parser.add_argument('--epochs', '-e', type=int, default=200,
+                        help='Number of epochs to train the flow model.')
 
     args = parser.parse_args()
+
+
     dataset = TuringPatternDataset.load(f'./turing_pattern/data/{args.dataset}_128x128.pt')
-    score_model = load_score_model(args.dataset, device='cuda')
+    score_model, scheduler = load_score_model(args.dataset, device='cuda')
     flow_model = FlowModel().to('cuda')
+
     trainer = Trainer(
-        flow_model, score_model, 
+        flow_model, 
+        score_model, 
+        scheduler,
         (2, 128, 128), # It is very important to set the correct input shape
         dataset=dataset, 
         use_wandb=True, 
-        lr=2e-4, 
+        lr=1e-3, 
         num_samples=8, 
         weight_decay=1e-5, 
         gradient_accumulation_steps=8,
@@ -124,7 +132,7 @@ if __name__ == "__main__":
         symmetry_punalty=args.sym,
         alpha=args.alpha)
 
-    trainer.train(epochs=200, batch_size=128)
+    trainer.train(epochs=args.epochs, batch_size=128)
     # save flow_model
     import os
     os.makedirs('./turing_pattern/flow_models/', exist_ok=True)
