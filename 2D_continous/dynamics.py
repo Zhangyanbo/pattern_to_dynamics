@@ -141,7 +141,8 @@ class Trainer:
                     self.scheduler.step()
                 
                 output = self.estimate(batch)
-                loss = lf(output['div(pv)'] / self.dim ** 0.5, torch.zeros_like(output['div(pv)']))
+                div1, div2 = output['div(pv)_1'], output['div(pv)_2']
+                loss = (div1 * div2 / self.dim).mean()
                 if self.symmetry_punalty > 0:
                     loss_symmetry = self.symmetry_loss(output['score'], output['v'])
                     loss += self.symmetry_punalty * loss_symmetry
