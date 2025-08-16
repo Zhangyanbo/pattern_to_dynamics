@@ -14,16 +14,16 @@ if __name__ == "__main__":
     parser.add_argument("--normalize", action='store_true', help="Normalize the dataset")
     parser.add_argument("--steps", type=int, default=2000, help="Number of simulation steps")
     parser.add_argument("--chunk", type=int, default=512, help="Chunk size for processing")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
 
     args = parser.parse_args()
 
     # set random seed for reproducibility
     import torch, random, numpy
 
-
-    random.seed(0)
-    numpy.random.seed(0)
-    torch.manual_seed(0)
+    random.seed(args.seed)
+    numpy.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
 
     for preset in args.preset:

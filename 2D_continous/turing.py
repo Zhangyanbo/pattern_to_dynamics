@@ -1,6 +1,7 @@
 from turing_pattern import GrayScottSimulator, create_random_state, TuringPatternDataset
 from probflow import Diffuser, ResNet2D, ScoreTrainer, UNet2D, DiffusionTrainer, generate_images
-import torch
+import torch, random
+import numpy as np
 from diffusers import UNet2DModel, DDPMScheduler
 
 
@@ -90,8 +91,13 @@ if __name__ == "__main__":
     parser.add_argument('--plot_channel', type=int, default=0, help="Channel to plot during training")
     parser.add_argument('--sampling', choices=['ddpm', 'ddim'], default='ddpm', help="Sampling method for diffusion model")
     parser.add_argument('--ema', action='store_true', help="Use EMA for diffusion model")
+    parser.add_argument('--seed', type=int, default=0, help="Random seed for reproducibility")
 
     args = parser.parse_args()
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     if args.objective == 'score':
         trainer_config = dict(
