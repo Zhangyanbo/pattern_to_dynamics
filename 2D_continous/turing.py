@@ -3,10 +3,11 @@ from probflow import Diffuser, ResNet2D, ScoreTrainer, UNet2D, DiffusionTrainer,
 import torch, random
 import numpy as np
 from diffusers import UNet2DModel, DDPMScheduler
+from circular import UNet2DModelWithPadding
 
 
 def get_unet_score():
-    unet = UNet2D(
+    unet = UNet2DModelWithPadding(
         # I/O -------------------------------------------------------------
         sample_size=128,          # Board 64x64; only needs to be multiple of 2**(levels-1)
         in_channels=2,           # Game-of-Life: single channel
@@ -17,11 +18,14 @@ def get_unet_score():
         block_out_channels=(16, 32, 64), # Channels per layer (>30x smaller than default)
 
         norm_num_groups=8,  # Reduced GroupNorm groups while maintaining stability
+        padding_mode='circular',
+        only_when_effective=True,
+        log_changed=True
     )
     return unet
 
 def get_unet_diffusion():
-    unet = UNet2DModel(
+    unet = UNet2DModelWithPadding(
         sample_size=128,          # Board 64x64; only needs to be multiple of 2**(levels-1)
         in_channels=2,           # Game-of-Life: single channel
         out_channels=2,
@@ -31,6 +35,9 @@ def get_unet_diffusion():
         block_out_channels=(16, 32, 64), # Channels per layer (>30x smaller than default)
 
         norm_num_groups=8,  # Reduced GroupNorm groups while maintaining stability
+        padding_mode='circular',
+        only_when_effective=True,
+        log_changed=True
     )
     return unet
 
