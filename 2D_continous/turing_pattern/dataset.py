@@ -101,8 +101,8 @@ class GrayScottSimulator(nn.Module):
             v_next = torch.clamp(v_next, 0, 1)
         
         return u_next, v_next
-    
-    def forward(self, u, v, steps=1, trace=False):
+
+    def forward(self, u, v, steps=1, trace=False, trace_every=1):
         """
         Evolve the Gray-Scott model for multiple steps.
         
@@ -118,9 +118,9 @@ class GrayScottSimulator(nn.Module):
         u_states = [u]
         v_states = [v]
         
-        for _ in range(steps):
+        for i in range(steps):
             u, v = self.step(u, v)
-            if trace:
+            if trace and (i % trace_every == 0):
                 u_states.append(u)
                 v_states.append(v)
             else:
