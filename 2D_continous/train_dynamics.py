@@ -1,15 +1,25 @@
 import torch
 import torch.nn as nn
+import numpy as np
+import random
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 from probflow import Diffuser, ResNet2D, VPJBatchNorm2d, VPJBatchNorm, div_estimate
 from dynamics import Trainer
 from turing_pattern import GrayScottSimulator, create_random_state, TuringPatternDataset
 from diffusers import UNet2DModel, DDPMScheduler
+from circular import UNet2DModelWithPadding
 
+
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 def load_score_model(name:str, device:str='cuda', freeze:bool=True) -> nn.Module:
-    model = UNet2DModel.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
+    model = UNet2DModelWithPadding.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
     scheduler = DDPMScheduler.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
     model.eval()
 
@@ -65,12 +75,17 @@ class SymConv2d_3(nn.Module):
         torch.einsum('oi, hw -> oihw', self.cross, self.mask_cross)
         return k
     
-    def conv(self, x):
-        return nn.functional.conv2d(
-            x, self.kernel, bias=self.bias, padding=self.padding, groups=1)
+    def _conv(self, x: torch.Tensor) -> torch.Tensor:
+        # Circularly pad the input on all four sides, then run a valid (no‑pad) conv
+        x = F.pad(
+            x,
+            (self.padding, self.padding, self.padding, self.padding),
+            mode="circular",
+        )
+        return F.conv2d(x, self.kernel, bias=self.bias, padding=0, groups=1)
 
     def forward(self, x):
-        x = self.conv(x)
+        x = self._conv(x)
         return x
 
 
@@ -89,7 +104,8 @@ class FlowModel(nn.Module):
         # self.skip_connection = nn.Conv2d(2, 2, kernel_size=1, padding=0)
     
     def forward(self, x):
-        return self.bn(self.cnn(x))
+        # return self.bn(self.cnn(x))
+        return self.cnn(x)
 
 
 if __name__ == "__main__":
@@ -98,7 +114,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a flow model for Turing patterns.')
     parser.add_argument('--dataset', type=str, default='spirals',
                         help='Dataset to use for training the flow model.')
-    parser.add_argument('-a', '--alpha', type=float, default=0.8,
+    parser.add_argument('-t', '--dt', type=float, default=10,
                         help='Alpha value for the diffusion model.')
     parser.add_argument('-s', '--schedule', action='store_true',
                         help='Use cosine schedule for learning rate.')
@@ -108,29 +124,34 @@ if __name__ == "__main__":
                         help='Symmetry penalty weight for the loss function.')
     parser.add_argument('--epochs', '-e', type=int, default=200,
                         help='Number of epochs to train the flow model.')
+    parser.add_argument('--seed', type=int, default=0,
+                        help='Random seed for initialization.')
 
     args = parser.parse_args()
 
+    setup_seed(args.seed)
 
     dataset = TuringPatternDataset.load(f'./turing_pattern/data/{args.dataset}_128x128.pt')
     score_model, scheduler = load_score_model(args.dataset, device='cuda')
     flow_model = FlowModel().to('cuda')
 
     trainer = Trainer(
-        flow_model, 
-        score_model, 
-        scheduler,
-        (2, 128, 128), # It is very important to set the correct input shape
-        dataset=dataset, 
-        use_wandb=True, 
-        lr=1e-3, 
-        num_samples=8, 
-        weight_decay=1e-5, 
-        gradient_accumulation_steps=8,
-        schedule=args.schedule,
-        gaussian_weight=args.gaussian_weight,
-        symmetry_punalty=args.sym,
-        alpha=args.alpha)
+            flow_model, 
+            score_model, 
+            scheduler,
+            (2, 128, 128), # It is very important to set the correct input shape
+            dataset=dataset, 
+            model=args.dataset,
+            use_wandb=True, 
+            lr=1e-2, 
+            num_samples=8, 
+            weight_decay=1e-5, 
+            gradient_accumulation_steps=8,
+            schedule=args.schedule,
+            gaussian_weight=args.gaussian_weight,
+            symmetry_punalty=args.sym,
+            diffuse_time_t=args.dt,
+        )
 
     trainer.train(epochs=args.epochs, batch_size=128)
     # save flow_model
