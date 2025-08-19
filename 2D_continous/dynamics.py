@@ -48,6 +48,7 @@ class Trainer:
                 shape:tuple, 
                 dataset, 
                 use_wandb:bool=False,
+                model:str='none',
                 device='cuda', 
                 num_samples=2, 
                 diffuse_time_t=10,
@@ -67,8 +68,8 @@ class Trainer:
         self.num_samples = num_samples
         self.dataset = dataset
         self.diffuser = scheduler
-        self.alpha = alpha
         self.schedule = schedule
+        self.model = model
         self.diffuse_time_t = torch.LongTensor([diffuse_time_t]).to(device)
 
         self.lr = lr
@@ -100,15 +101,21 @@ class Trainer:
                             num_samples=self.num_samples, 
                             alpha=alpha, 
                             )
+    def global_loss(self, s, v):
+        prod = torch.einsum('bn, bn -> b', s, v)
+        return prod.mean().pow(2)
     
     def setup_wandb(self):
         if self.use_wandb:
-            wandb.init(project='pattern_to_dynamics', config={
-                'lr': self.lr,
-                'weight_decay': self.weight_decay,
-                'diffuser': dict(self.diffuser.config),
-                'num_samples': self.num_samples,
-            })
+            wandb.init(project='pattern-to-dynamics', 
+                group=self.model,
+                config={
+                    'lr': self.lr,
+                    'weight_decay': self.weight_decay,
+                    'diffuser': dict(self.diffuser.config),
+                    'num_samples': self.num_samples,
+                }
+            )
     
     def symmetry_loss(self, score, v):
         # l = score^\top \cdot v, score / v.shape = [batch, n]
@@ -117,7 +124,7 @@ class Trainer:
     
     def train(self, epochs=10, batch_size=32):
         self.setup_wandb()
-        optimizer = torch.optim.AdamW(
+        optimizer = torch.optim.Adam(
             self.flow_model.parameters(), 
             lr=self.lr, 
             weight_decay=self.weight_decay)
@@ -141,29 +148,43 @@ class Trainer:
                     self.scheduler.step()
                 
                 output = self.estimate(batch)
-                div1, div2 = output['div(pv)_1'], output['div(pv)_2']
-                loss = (div1 * div2 / self.dim).mean()
+                v_avg_norm = output['v'].pow(2).sum(dim=-1).mean()
+                loss_global = self.global_loss(output['score'], output['v']) / (v_avg_norm + 1e-8)
+                div1, div2 = output['div(pv)_1'], output['div(pv)_2'] # [B]
+                # loss_div = (div1 * div2 / self.dim).mean()
+                # v.shape = [B, 2*H*W]
+                loss_div = (div1 * div2).mean() / (v_avg_norm + 1e-8)
+                loss_norm = (v_avg_norm / self.dim - 1).pow(2)
+                loss = loss_div + loss_norm + loss_global * 1e-3
                 if self.symmetry_punalty > 0:
                     loss_symmetry = self.symmetry_loss(output['score'], output['v'])
                     loss += self.symmetry_punalty * loss_symmetry
                 loss.backward()
-
-                if self.use_wandb:
-                    wandb.log(
-                        {
-                            'loss': loss.item(), 
-                            'epoch': epoch+i/len(dataloader), 
-                            'lr': optimizer.param_groups[0]['lr'], 
-                            'loss_symmetry': loss_symmetry.item() if self.symmetry_punalty > 0 else 0,
-                            'v_norm': output['v'].pow(2).mean().sqrt().item(),
-                            '|div(v)|': output['div(v)'].pow(2).mean().sqrt().item(),
-                            '|v@s|': output['v@s'].pow(2).mean().sqrt().item(),
-                        })
                 
                 if (step + 1) % self.gradient_accumulation_steps == 0:
+                    # average gradients
+                    for param in self.flow_model.parameters():
+                        if param.grad is not None:
+                            param.grad /= self.gradient_accumulation_steps
+                    # clip gradients
+                    gradient_norm = torch.nn.utils.clip_grad_norm_(self.flow_model.parameters(), 1.0)
                     optimizer.step()
                     optimizer.zero_grad()
                     step = 0
+                
+                    if self.use_wandb:
+                        wandb.log(
+                            {
+                                'loss': loss_div.item(), 
+                                'loss_global': loss_global.item(),
+                                'epoch': epoch+i/len(dataloader), 
+                                'lr': optimizer.param_groups[0]['lr'], 
+                                'loss_symmetry': loss_symmetry.item() if self.symmetry_punalty > 0 else 0,
+                                'v_norm': output['v'].pow(2).mean().sqrt().item(),
+                                '|div(v)|': output['div(v)'].pow(2).mean().sqrt().item(),
+                                '|v@s|': output['v@s'].pow(2).mean().sqrt().item(),
+                                'gradient_norm': gradient_norm.item() if 'gradient_norm' in locals() else 0,
+                            })
                 i += 1
             
             print(f'Epoch {epoch+1}/{epochs}, Loss: {loss.item()}')
