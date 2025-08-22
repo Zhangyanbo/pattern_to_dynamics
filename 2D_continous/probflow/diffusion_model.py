@@ -9,6 +9,8 @@ import numpy as np
 import wandb
 from transformers import get_cosine_schedule_with_warmup
 import inspect
+from diffusers.training_utils import EMAModel
+from typing import Tuple
 
 
 class Logger:
@@ -70,6 +72,7 @@ class DiffusionTrainer:
                  unet: UNet2DModel, 
                  scheduler: DDPMScheduler, 
                  dataset: torch.utils.data.Dataset,
+                 model_name:str = 'diffusion_model',
                  epochs: int = 100, 
                  learning_rate: float = 1e-4, 
                  batch_size: int = 32, 
@@ -82,6 +85,8 @@ class DiffusionTrainer:
                  checkpoint_path: str = 'unet_checkpoint.pth',
                  method:str = 'ddim',
                  clip_sample_range:float = 1,
+                 lr_schedule:bool = False,
+                 use_ema:bool = False
                  ):
 
         # --- Initialization ---
@@ -100,6 +105,9 @@ class DiffusionTrainer:
         self.warmup_steps = warmup_steps
         self.method = method
         self.clip_sample_range = clip_sample_range
+        self.lr_schedule = lr_schedule
+        self.use_ema = use_ema
+        self.model_name = model_name
 
         # --- Device Setup ---
         if device == 'cuda' and not torch.cuda.is_available():
@@ -125,6 +133,7 @@ class DiffusionTrainer:
         if self.use_wandb:
             run = wandb.init(
                     project=self.task_name,
+                    group=self.model_name,
                     # Track hyperparameters and run metadata.
                     config=dict(
                         learning_rate=self.learning_rate,
@@ -155,6 +164,25 @@ class DiffusionTrainer:
         """Creates DataLoader instances for training and validation."""
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
         self.val_loader = DataLoader(self.val_dataset, batch_size=self.batch_size)
+    
+    def get_loss(self, clean_images):
+        lf = nn.MSELoss()
+        noise = torch.randn_like(clean_images)
+        timesteps = torch.randint(0, self.scheduler.config.num_train_timesteps, (clean_images.shape[0],), device=self.device).long()
+        
+        # 3. Add noise to the clean images
+        noisy_images = self.scheduler.add_noise(clean_images, noise, timesteps)
+        
+        # --- Forward Pass ---
+        noise_pred = self.unet(noisy_images, timesteps, return_dict=False)[0]
+        
+        # --- Loss Calculation ---
+        if self.scheduler.config.prediction_type == 'epsilon':
+            target = noise
+        elif self.scheduler.config.prediction_type == 'v_prediction':
+            target = self.scheduler.get_velocity(clean_images, noise, timesteps)
+        loss = lf(noise_pred, target)
+        return loss
 
     def _train_epoch(self):
         """Runs a single training epoch."""
@@ -162,32 +190,14 @@ class DiffusionTrainer:
         total_loss = 0.0
         progress_bar = tqdm(self.train_loader, desc=f"Epoch {self.current_epoch}/{self.epochs} [Training]")
 
-        lf = nn.MSELoss()
-
         i = 0
         for batch in progress_bar:
-            self.optimizer_scheduler.step()
-            
             clean_images = batch.to(self.device)
-            
-            # 1. Sample noise
-            noise = torch.randn_like(clean_images)
-            
-            # 2. Sample a random timestep for each image
-            timesteps = torch.randint(0, self.scheduler.config.num_train_timesteps, (clean_images.shape[0],), device=self.device).long()
-            
-            # 3. Add noise to the clean images
-            noisy_images = self.scheduler.add_noise(clean_images, noise, timesteps)
-            
-            # --- Forward Pass ---
-            self.optimizer.zero_grad()
-            noise_pred = self.unet(noisy_images, timesteps, return_dict=False)[0]
-            
-            # --- Loss Calculation ---
-            loss = lf(noise_pred, noise)
 
-            # --- Backward Pass & Optimization ---
+            self.optimizer.zero_grad()
+            loss = self.get_loss(clean_images)
             loss.backward()
+
             # clip gradients to avoid exploding gradients
             torch.nn.utils.clip_grad_norm_(self.unet.parameters(), max_norm=1.0)
             self.log({
@@ -196,6 +206,10 @@ class DiffusionTrainer:
                 'lr': self.optimizer.param_groups[0]['lr']
                 })
             self.optimizer.step()
+            if self.lr_schedule:
+                self.optimizer_scheduler.step()
+            if self.use_ema:
+                self.ema_unet.step(self.unet.parameters())
 
             i += 1
             
@@ -212,17 +226,10 @@ class DiffusionTrainer:
         total_loss = 0.0
         progress_bar = tqdm(self.val_loader, desc=f"Epoch {self.current_epoch}/{self.epochs} [Validation]")
 
-        lf = nn.MSELoss()
-
         with torch.no_grad():
             for batch in progress_bar:
                 clean_images = batch.to(self.device)
-                noise = torch.randn_like(clean_images)
-                timesteps = torch.randint(0, self.scheduler.config.num_train_timesteps, (clean_images.shape[0],), device=self.device).long()
-                noisy_images = self.scheduler.add_noise(clean_images, noise, timesteps)
-                
-                noise_pred = self.unet(noisy_images, timesteps, return_dict=False)[0]
-                loss = lf(noise_pred, noise)
+                loss = self.get_loss(clean_images)
 
                 total_loss += loss.item()
                 progress_bar.set_postfix({'val_loss': loss.item()})
@@ -245,36 +252,22 @@ class DiffusionTrainer:
         return img
     
     def log_generated_images(self):
-        if self.method == 'ddpm':
-            scheduler = DDPMScheduler.from_config(
-                self.scheduler.config,
-                clip_sample_range=self.clip_sample_range,
-                rescale_betas_zero_snr=True
-            )
-        elif self.method == 'ddim':
-            scheduler = DDIMScheduler.from_config(
-                self.scheduler.config,
-                clip_sample_range=self.clip_sample_range,
-                timestep_spacing="trailing",
-                rescale_betas_zero_snr=True
-            )
-        else:
-            raise ValueError(f"Unknown method: {self.method}. Use 'ddpm' or 'ddim'.")
-        
         images = generate_images(
             self.unet, 
-            scheduler,
+            self.scheduler,
             height=self.unet.config.sample_size, 
             width=self.unet.config.sample_size, 
             batch_size=1,
             eta=0.0,
             num_inference_steps=self.scheduler.config['num_train_timesteps'], 
             device=self.device
-        ).cpu()
+        ).cpu().clamp(-self.clip_sample_range, self.clip_sample_range)
 
         # convert to a format suitable for logging
         img = self._normalize_image(images[0])
-        img_real = self._normalize_image(self.dataset[0])
+
+        idx = np.random.randint(0, len(self.dataset))
+        img_real = self._normalize_image(self.dataset[idx])
 
         # Make plot
         fig, ax = plt.subplots(1, 2, figsize=(10, 6))
@@ -303,36 +296,55 @@ class DiffusionTrainer:
 
         self.optimizer = torch.optim.AdamW(self.unet.parameters(), lr=self.learning_rate, 
                                           weight_decay=self.weight_decay)
-        self.optimizer_scheduler = get_cosine_schedule_with_warmup(
-            self.optimizer,
-            num_warmup_steps=self.warmup_steps,
-            num_training_steps=self.epochs * len(self.train_loader)
-        )
+        if self.lr_schedule:
+            self.optimizer_scheduler = get_cosine_schedule_with_warmup(
+                self.optimizer,
+                num_warmup_steps=self.warmup_steps,
+                num_training_steps=self.epochs * len(self.train_loader)
+            )
+        
+        if self.use_ema:
+            self.ema_unet = EMAModel(
+                        parameters=self.unet.parameters(),
+                        decay=0.9999,
+                        model_cls=type(self.unet),
+                        model_config=self.unet.config,
+                    )
 
         for epoch in range(1, self.epochs + 1):
             self.current_epoch = epoch
             
             avg_train_loss = self._train_epoch()
-            avg_val_loss = self._validate_epoch()
 
-            self.logger.step()
-            
-            print(f"Epoch {epoch}/{self.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+            if self.use_ema:
+                self.ema_unet.store(self.unet.parameters())
+                self.ema_unet.copy_to(self.unet.parameters())
+            avg_val_loss = self._validate_epoch()
 
             if (epoch + 1) % max(1, int(self.epochs / 10)) == 0:
                 print(f"Saving checkpoint for epoch {epoch}...")
                 self.log_generated_images()
                 self.save_model()
 
+            if self.use_ema:
+                self.ema_unet.restore(self.unet.parameters())
+
+            self.logger.step()
+            
+            print(f"Epoch {epoch}/{self.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+
         print("Training finished.")
         self.save_model()
 
     def save_model(self):
         """Saves the trained UNet model state dictionary."""
-        import os
-        os.makedirs(os.path.dirname(self.checkpoint_path), exist_ok=True)
-        torch.save(self.unet.state_dict(), self.checkpoint_path)
-        print(f"Model checkpoint saved to {self.checkpoint_path}")
+        if self.use_ema:
+            self.ema_unet.save_pretrained(self.checkpoint_path)
+        else:
+            self.unet.save_pretrained(self.checkpoint_path)
+        
+        self.scheduler.save_pretrained(self.checkpoint_path)
+        print(f"Model saved to {self.checkpoint_path}")
 
     def plot_loss_curves(self):
         """Plots the training and validation loss curves."""

@@ -59,7 +59,7 @@ def train_score(model:str, alpha, trainer_config:dict, network:str='unet'):
 
     trainer.train()
 
-def train_diffusion(model_name:str, alpha, trainer_config:dict, network:str='unet'):
+def train_diffusion(model_name:str, alpha, trainer_config:dict, network:str='unet', prediction_type='epsilon'):
     dataset = TuringPatternDataset.load(f'./turing_pattern/data/{model_name}_128x128.pt')
     if network == 'unet':
         model = get_unet_diffusion()
@@ -68,7 +68,7 @@ def train_diffusion(model_name:str, alpha, trainer_config:dict, network:str='une
     scheduler = DDPMScheduler(
         num_train_timesteps=100, 
         beta_start=0.0001, beta_end=0.1,
-        prediction_type="epsilon"
+        prediction_type=prediction_type
     )
 
     trainer = DiffusionTrainer(
@@ -99,6 +99,7 @@ if __name__ == "__main__":
     parser.add_argument('--sampling', choices=['ddpm', 'ddim'], default='ddpm', help="Sampling method for diffusion model")
     parser.add_argument('--ema', action='store_true', help="Use EMA for diffusion model")
     parser.add_argument('--seed', type=int, default=0, help="Random seed for reproducibility")
+    parser.add_argument('--prediction_type', type=str, default='epsilon', help="Prediction type for diffusion model")
 
     args = parser.parse_args()
 
@@ -137,7 +138,7 @@ if __name__ == "__main__":
             use_wandb=args.wb,
             method=args.sampling,
             lr_schedule=args.lr_schedule,
-            use_ema=args.ema,
+            use_ema=args.ema
         )
 
-        train_diffusion(args.model, args.alpha, trainer_config, network=args.network)
+        train_diffusion(args.model, args.alpha, trainer_config, network=args.network, prediction_type=args.prediction_type)
