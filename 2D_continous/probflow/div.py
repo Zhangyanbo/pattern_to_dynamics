@@ -13,7 +13,7 @@ def hutchinson_estimate(model, x, num_samples: int = 64):
     return div_samples.mean(0), y_all[0]
 
 
-def div_estimate(flow_model, diff_model, x, num_samples=2, alpha=0.8, x0=None):
+def div_estimate(flow_model, score_model, x, num_samples=2, x0=None):
     """
     Calculate ∇·(v(x) * p(x)), where v(x) is the flow model and p(x) is
     represented implicitly by the score model.
@@ -34,7 +34,7 @@ def div_estimate(flow_model, diff_model, x, num_samples=2, alpha=0.8, x0=None):
     """
     num_batch = x.shape[0]
     with torch.no_grad():
-        s = -diff_model(x) / ((1 - alpha) ** 0.5) # [NOTE] ∇log(p(x)) = -Ɛ(x) / (1 - alpha_t).sqrt() according to the Tweedie equation
+        s = score_model(x)
     
     # Compute the divergence estimate twice to get unbiased estimates for both values and gradients
     if x0 is None:

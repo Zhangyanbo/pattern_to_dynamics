@@ -40,6 +40,17 @@ class Wrapper2D(nn.Module):
         return y.reshape(*prefix_shape, -1)
 
 
+def score_function(unet, scheduler, t):
+    def score_model(xt):
+        model_output = unet(xt, t)
+        x0 = scheduler.step(model_output.sample, t, xt).pred_original_sample
+        alpha_t = scheduler.alphas_cumprod[t]
+        score = (x0 * alpha_t ** 0.5 - xt) / (1 - alpha_t)
+        return score
+
+    return score_model
+
+
 class Trainer:
     def __init__(self, 
                 flow_model, 
@@ -63,7 +74,9 @@ class Trainer:
                 ):
         self._check_flow_model(flow_model)
         self.flow_model = Wrapper2D(flow_model, shape).to(device)
-        self.score_model = Wrapper2D(score_model, shape, gaussian_weight, timestep=diffuse_time_t).to(device)
+        self.score_model = Wrapper2D(
+                                score_function(score_model, scheduler, diffuse_time_t), 
+                                shape).to(device)
         self.device = device
         self.num_samples = num_samples
         self.dataset = dataset
@@ -99,7 +112,6 @@ class Trainer:
                             self.score_model, 
                             xt, 
                             num_samples=self.num_samples, 
-                            alpha=alpha, 
                             )
     def global_loss(self, s, v):
         prod = torch.einsum('bn, bn -> b', s, v)

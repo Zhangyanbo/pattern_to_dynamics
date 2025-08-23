@@ -22,6 +22,7 @@ def load_score_model(name:str, device:str='cuda', freeze:bool=True) -> nn.Module
     model = UNet2DModelWithPadding.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
     scheduler = DDPMScheduler.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
     model.eval()
+    model.to(device)
 
     if freeze:
         for param in model.parameters():
