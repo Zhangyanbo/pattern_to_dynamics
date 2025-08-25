@@ -10,6 +10,29 @@ from tqdm import tqdm
 # Converted from Game of Life dataset to reaction-diffusion patterns
 # Maintains the same API but generates continuous Turing patterns instead of discrete cellular automata
 
+PRESETS = {
+        # Classical patterns from Pearson 1993 and other sources
+        # Note: Du/Dv ratio is typically 2, as U diffuses faster than V
+        'spots': {'Du': 0.16, 'Dv': 0.08, 'F': 0.035, 'k': 0.065},
+        'dots': {'Du': 0.16, 'Dv': 0.08, 'F': 0.04, 'k': 0.07},
+        'stripes': {'Du': 0.16, 'Dv': 0.08, 'F': 0.035, 'k': 0.060},
+        'spirals': {'Du': 0.16, 'Dv': 0.08, 'F': 0.007, 'k': 0.028},
+        'waves': {'Du': 0.16, 'Dv': 0.08, 'F': 0.018, 'k': 0.049},
+        'holes': {'Du': 0.16, 'Dv': 0.08, 'F': 0.039, 'k': 0.058},
+        'chaos': {'Du': 0.10, 'Dv': 0.05, 'F': 0.026, 'k': 0.051},
+        'maze': {'Du': 0.16, 'Dv': 0.08, 'F': 0.029, 'k': 0.057},
+
+        # Interesting patterns, often needs 128 x 128 resolution
+        'life': {'Du': 0.16, 'Dv': 0.08, 'F': 0.006, 'k': 0.0450},
+        
+        # Additional patterns from various sources
+        'bubbles': {'Du': 0.16, 'Dv': 0.08, 'F': 0.090, 'k': 0.059},
+        'worms': {'Du': 0.16, 'Dv': 0.08, 'F': 0.046, 'k': 0.063},
+        'solitons': {'Du': 0.10, 'Dv': 0.05, 'F': 0.030, 'k': 0.060},
+        'pulsating_solitons': {'Du': 0.10, 'Dv': 0.05, 'F': 0.025, 'k': 0.060},
+        'u_skate': {'Du': 0.16, 'Dv': 0.08, 'F': 0.062, 'k': 0.061},
+        'fingerprints': {'Du': 0.16, 'Dv': 0.08, 'F': 0.040, 'k': 0.064},
+    }
 
 class GrayScottSimulator(nn.Module):
     """
@@ -32,7 +55,7 @@ class GrayScottSimulator(nn.Module):
     - And many more complex patterns...
     """
     
-    def __init__(self, Du=0.16, Dv=0.08, F=0.035, k=0.065, dt=1.0, clamp=True, device='cpu'):
+    def __init__(self, Du=0.16, Dv=0.08, F=0.035, k=0.065, dt=1.0, clamp=True, device='cpu', pattern_preset:str=None):
         """
         Args:
             Du: Diffusion rate of U (typically 0.16)
@@ -47,6 +70,13 @@ class GrayScottSimulator(nn.Module):
         self.Dv = Dv
         self.F = F
         self.k = k
+        self.pattern_preset = pattern_preset
+        if pattern_preset and pattern_preset in PRESETS:
+            preset = PRESETS[pattern_preset]
+            self.Du = preset['Du']
+            self.Dv = preset['Dv']
+            self.F = preset['F']
+            self.k = preset['k']
         self.dt = dt
         self.device = device
         self.clamp = clamp
@@ -68,7 +98,20 @@ class GrayScottSimulator(nn.Module):
     def compute_laplacian(self, x):
         """Compute discrete Laplacian using convolution."""
         return self.laplacian(x)
-    
+
+    def delta(self, u, v):
+        # Compute Laplacians
+        lap_u = self.compute_laplacian(u)
+        lap_v = self.compute_laplacian(v)
+        
+        # Reaction terms
+        uvv = u * v * v
+        
+        # Update equations
+        du_dt = self.Du * lap_u - uvv + self.F * (1 - u)
+        dv_dt = self.Dv * lap_v + uvv - (self.F + self.k) * v
+        return du_dt, dv_dt
+
     def step(self, u, v):
         """
         Compute one time step of the Gray-Scott model.
@@ -80,17 +123,8 @@ class GrayScottSimulator(nn.Module):
         Returns:
             Tuple of (u_next, v_next) after one time step
         """
-        # Compute Laplacians
-        lap_u = self.compute_laplacian(u)
-        lap_v = self.compute_laplacian(v)
-        
-        # Reaction terms
-        uvv = u * v * v
-        
-        # Update equations
-        du_dt = self.Du * lap_u - uvv + self.F * (1 - u)
-        dv_dt = self.Dv * lap_v + uvv - (self.F + self.k) * v
-        
+        du_dt, dv_dt = self.delta(u, v)
+
         # Euler integration
         u_next = u + self.dt * du_dt
         v_next = v + self.dt * dv_dt
@@ -198,31 +232,6 @@ class TuringPatternDataset(Dataset):
     The patterns are continuous-valued (not binary like Game of Life) and exhibit
     beautiful self-organizing structures like spots, stripes, spirals, and more.
     """
-    
-    PRESETS = {
-        # Classical patterns from Pearson 1993 and other sources
-        # Note: Du/Dv ratio is typically 2, as U diffuses faster than V
-        'spots': {'Du': 0.16, 'Dv': 0.08, 'F': 0.035, 'k': 0.065},
-        'dots': {'Du': 0.16, 'Dv': 0.08, 'F': 0.04, 'k': 0.07},
-        'stripes': {'Du': 0.16, 'Dv': 0.08, 'F': 0.035, 'k': 0.060},
-        'spirals': {'Du': 0.16, 'Dv': 0.08, 'F': 0.007, 'k': 0.028},
-        'waves': {'Du': 0.16, 'Dv': 0.08, 'F': 0.018, 'k': 0.049},
-        'holes': {'Du': 0.16, 'Dv': 0.08, 'F': 0.039, 'k': 0.058},
-        'chaos': {'Du': 0.10, 'Dv': 0.05, 'F': 0.026, 'k': 0.051},
-        'maze': {'Du': 0.16, 'Dv': 0.08, 'F': 0.029, 'k': 0.057},
-
-        # Interesting patterns, often needs 128 x 128 resolution
-        'life': {'Du': 0.16, 'Dv': 0.08, 'F': 0.006, 'k': 0.0450},
-        
-        # Additional patterns from various sources
-        'bubbles': {'Du': 0.16, 'Dv': 0.08, 'F': 0.090, 'k': 0.059},
-        'worms': {'Du': 0.16, 'Dv': 0.08, 'F': 0.046, 'k': 0.063},
-        'solitons': {'Du': 0.10, 'Dv': 0.05, 'F': 0.030, 'k': 0.060},
-        'pulsating_solitons': {'Du': 0.10, 'Dv': 0.05, 'F': 0.025, 'k': 0.060},
-        'u_skate': {'Du': 0.16, 'Dv': 0.08, 'F': 0.062, 'k': 0.061},
-        'fingerprints': {'Du': 0.16, 'Dv': 0.08, 'F': 0.040, 'k': 0.064},
-    }
-    
     def __init__(
         self,
         *,
@@ -275,8 +284,8 @@ class TuringPatternDataset(Dataset):
         self.normalization = normalization
         
         # Use preset parameters if specified
-        if pattern_preset and pattern_preset in self.PRESETS:
-            preset = self.PRESETS[pattern_preset]
+        if pattern_preset and pattern_preset in PRESETS:
+            preset = PRESETS[pattern_preset]
             Du = preset['Du']
             Dv = preset['Dv']
             F = preset['F']
