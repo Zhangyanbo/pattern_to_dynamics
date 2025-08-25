@@ -12,7 +12,7 @@ if __name__ == "__main__":
     parser.add_argument("--preset", type=str, nargs='+', default=['waves'], help="Preset pattern type(s)")
     parser.add_argument("--cuda", action='store_true', help="Use CUDA for simulation")
     parser.add_argument("--normalize", action='store_true', help="Normalize the dataset")
-    parser.add_argument("--steps", type=int, default=2000, help="Number of simulation steps")
+    parser.add_argument("--steps", type=int, default=10000, help="Number of simulation steps")
     parser.add_argument("--chunk", type=int, default=512, help="Chunk size for processing")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
 
