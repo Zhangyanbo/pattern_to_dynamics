@@ -149,6 +149,12 @@ class Trainer:
         Here we are using the noise-free version to compute
         the correlation. This is important because randomness
         can lead to zero correlation at high-dimensional space.
+
+        [NOTE] We do not use x_t to compute v and F(x). Instead,
+        we use x_0, the clean image, to compute them. This is to
+        avoid unexpected non-linear behavior of the Gray-Scott 
+        model. And the neural network trained on x_t should behave
+        stable on x_0 since x_t is a noisy version of x_0.
         """
         x = x.reshape(x.shape[0], -1)
         v_f = self.flow_model(x)
