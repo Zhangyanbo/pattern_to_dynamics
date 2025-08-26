@@ -4,6 +4,7 @@ import wandb
 import torch
 import torch.nn as nn
 from probflow import Diffuser, div_estimate
+import torch.nn.functional as F
 
 
 class Wrapper2D(nn.Module):
@@ -59,6 +60,7 @@ class Trainer:
                 shape:tuple, 
                 dataset, 
                 use_wandb:bool=False,
+                reference_flow_model:callable=None,
                 model:str='none',
                 device='cuda', 
                 num_samples=2, 
@@ -84,6 +86,7 @@ class Trainer:
         self.schedule = schedule
         self.model = model
         self.diffuse_time_t = torch.LongTensor([diffuse_time_t]).to(device)
+        self.reference_flow_model = reference_flow_model
 
         self.lr = lr
         self.gradient_accumulation_steps = gradient_accumulation_steps
@@ -134,6 +137,26 @@ class Trainer:
         num_elements = score.numel()
         return torch.einsum('bn, bn -> b', score, v).sum() / num_elements
     
+    @torch.no_grad()
+    def compare_truth(self, x):
+        """
+        Compute the correlation between v and F(x), where
+        F is the ground-truth of v. Both of the variables
+        has the same shape of [batch, dim].
+
+        corr = v @ F(x) / (|v| * |F(x)|)
+
+        Here we are using the noise-free version to compute
+        the correlation. This is important because randomness
+        can lead to zero correlation at high-dimensional space.
+        """
+        x = x.reshape(x.shape[0], -1)
+        v_f = self.flow_model(x)
+        v_F = self.reference_flow_model(x)
+        assert v_f.shape == v_F.shape
+        assert len(v_f.shape) == 2
+        return F.cosine_similarity(v_f, v_F, dim=1).mean().item()
+
     def train(self, epochs=10, batch_size=32):
         self.setup_wandb()
         optimizer = torch.optim.Adam(
@@ -167,11 +190,18 @@ class Trainer:
                 # v.shape = [B, 2*H*W]
                 loss_div = (div1 * div2).mean() / (v_avg_norm + 1e-8)
                 loss_norm = (v_avg_norm / self.dim - 1).pow(2)
-                loss = loss_div + loss_norm + loss_global * 1e-3
+                loss_v = output['v'].mean().pow(2) / (v_avg_norm / self.dim)
+
+                # reg = torch.mean(output['v@s'].pow(2) / (output['score'].norm(dim=1).pow(2) + 1e-6))
+                loss = loss_div
                 if self.symmetry_punalty > 0:
                     loss_symmetry = self.symmetry_loss(output['score'], output['v'])
                     loss += self.symmetry_punalty * loss_symmetry
                 loss.backward()
+
+                # Calculate correlation to the ground-truth
+                if self.reference_flow_model is not None:
+                    corr = self.compare_truth(batch)
                 
                 if (step + 1) % self.gradient_accumulation_steps == 0:
                     # average gradients
@@ -185,18 +215,21 @@ class Trainer:
                     step = 0
                 
                     if self.use_wandb:
-                        wandb.log(
-                            {
+                        info = {
                                 'loss': loss_div.item(), 
                                 'loss_global': loss_global.item(),
                                 'epoch': epoch+i/len(dataloader), 
                                 'lr': optimizer.param_groups[0]['lr'], 
                                 'loss_symmetry': loss_symmetry.item() if self.symmetry_punalty > 0 else 0,
+                                'v_avg': output['v'].mean().item(),
                                 'v_norm': output['v'].pow(2).mean().sqrt().item(),
                                 '|div(v)|': output['div(v)'].pow(2).mean().sqrt().item(),
                                 '|v@s|': output['v@s'].pow(2).mean().sqrt().item(),
                                 'gradient_norm': gradient_norm.item() if 'gradient_norm' in locals() else 0,
-                            })
+                            }
+                        if self.reference_flow_model is not None:
+                            info['corr'] = corr
+                        wandb.log(info)
                 i += 1
             
             print(f'Epoch {epoch+1}/{epochs}, Loss: {loss.item()}')

@@ -29,6 +29,19 @@ def load_score_model(name:str, device:str='cuda', freeze:bool=True) -> nn.Module
             param.requires_grad = False
     return model, scheduler
 
+def turing_pattern_model(preset, h, w, device='cuda'):
+    simulator = GrayScottSimulator(pattern_preset=preset).to(device)
+
+    def GS(x):
+        x = x.reshape(-1, 2, h, w)
+        u = x[:, 0].unsqueeze(1)
+        v = x[:, 1].unsqueeze(1)
+
+        du_dt, dv_dt = simulator.delta(u, v)
+        dx_dt = torch.cat([du_dt, dv_dt], dim=1)
+        return dx_dt.reshape(x.shape[0], 2 * h * w)
+    
+    return GS
 
 class SymConv2d_3(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -145,13 +158,14 @@ if __name__ == "__main__":
             model=args.dataset,
             use_wandb=True, 
             lr=1e-2, 
-            num_samples=8, 
+            num_samples=4, 
             weight_decay=1e-5, 
             gradient_accumulation_steps=8,
             schedule=args.schedule,
             gaussian_weight=args.gaussian_weight,
             symmetry_punalty=args.sym,
             diffuse_time_t=args.dt,
+            reference_flow_model=turing_pattern_model(args.dataset, 128, 128)
         )
 
     trainer.train(epochs=args.epochs, batch_size=128)
