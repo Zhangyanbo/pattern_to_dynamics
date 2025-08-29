@@ -3,7 +3,7 @@ from transformers import get_cosine_schedule_with_warmup
 import wandb
 import torch
 import torch.nn as nn
-from probflow import Diffuser, div_estimate
+from probflow import div_estimate
 import torch.nn.functional as F
 
 

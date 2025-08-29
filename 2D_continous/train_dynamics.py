@@ -5,7 +5,7 @@ import random
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
-from probflow import Diffuser, ResNet2D, VPJBatchNorm2d, VPJBatchNorm, div_estimate
+from probflow import VPJBatchNorm2d, VPJBatchNorm, div_estimate
 from dynamics import Trainer
 from turing_pattern import GrayScottSimulator, create_random_state, TuringPatternDataset
 from diffusers import UNet2DModel, DDPMScheduler
