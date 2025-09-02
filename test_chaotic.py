@@ -164,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_traj', '-s', type=int, default=64)
     parser.add_argument('--tau', '-t', type=int, default=2500)
     parser.add_argument('--total_steps', '-T', type=int, default=5000)
-    parser.add_argument('--sigma', '-sigma', type=float, default=1e-10)
+    parser.add_argument('--sigma', '-sigma', type=float, default=1e-5)
     parser.add_argument('--eps', '-eps', type=float, default=1e-20)
     parser.add_argument('--dt', '-dt', type=float, default=0.1)
     parser.add_argument('--seed', type=int, default=0)
