@@ -104,22 +104,28 @@ class SymConv2d_3(nn.Module):
 
 
 class FlowModel(nn.Module):
-    def __init__(self, hidden_channels=32):
+    def __init__(self, hidden_channels=32, use_bn=False):
         super(FlowModel, self).__init__()
         self.cnn = nn.Sequential(
             SymConv2d_3(2, hidden_channels),
+            VPJBatchNorm2d(hidden_channels),
+            # nn.InstanceNorm2d(hidden_channels),
             nn.SiLU(),
             nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1, padding=0),
+            VPJBatchNorm2d(hidden_channels),
+            # nn.InstanceNorm2d(hidden_channels),
             nn.SiLU(),
             nn.Conv2d(hidden_channels, 2, kernel_size=1, padding=0),
         )
-        self.bn = VPJBatchNorm2d(2, affine=False)
-
-        # self.skip_connection = nn.Conv2d(2, 2, kernel_size=1, padding=0)
+        self.use_bn = use_bn
+        if self.use_bn:
+            self.bn = VPJBatchNorm2d(2, affine=False)
     
     def forward(self, x):
-        # return self.bn(self.cnn(x))
-        return self.cnn(x)
+        if self.use_bn:
+            return self.bn(self.cnn(x))
+        else:
+            return self.cnn(x)
 
 
 if __name__ == "__main__":
@@ -128,7 +134,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a flow model for Turing patterns.')
     parser.add_argument('--dataset', type=str, default='spirals',
                         help='Dataset to use for training the flow model.')
-    parser.add_argument('-t', '--dt', type=float, default=10,
+    parser.add_argument('-t', '--dt', type=int, default=10,
                         help='Alpha value for the diffusion model.')
     parser.add_argument('-s', '--schedule', action='store_true',
                         help='Use cosine schedule for learning rate.')
@@ -140,6 +146,14 @@ if __name__ == "__main__":
                         help='Number of epochs to train the flow model.')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed for initialization.')
+    parser.add_argument('--bn', action='store_true',
+                        help='Use batch normalization.')
+    parser.add_argument('--lr', type=float, default=1e-3,
+                        help='Learning rate for the optimizer.')
+    parser.add_argument('--weight_decay', '-wd', type=float, default=1e-5,
+                        help='Weight decay for the optimizer.')
+    parser.add_argument('--gradient_accumulation_steps', '-ga', type=int, default=8,
+                        help='Number of steps to accumulate gradients before updating model parameters.')
 
     args = parser.parse_args()
 
@@ -147,7 +161,7 @@ if __name__ == "__main__":
 
     dataset = TuringPatternDataset.load(f'./turing_pattern/data/{args.dataset}_128x128.pt')
     score_model, scheduler = load_score_model(args.dataset, device='cuda')
-    flow_model = FlowModel().to('cuda')
+    flow_model = FlowModel(use_bn=args.bn).to('cuda')
 
     trainer = Trainer(
             flow_model, 
@@ -157,15 +171,16 @@ if __name__ == "__main__":
             dataset=dataset, 
             model=args.dataset,
             use_wandb=True, 
-            lr=1e-2, 
+            lr=args.lr, 
             num_samples=4, 
-            weight_decay=1e-5, 
-            gradient_accumulation_steps=8,
+            weight_decay=args.weight_decay, 
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
             schedule=args.schedule,
             gaussian_weight=args.gaussian_weight,
             symmetry_punalty=args.sym,
             diffuse_time_t=args.dt,
-            reference_flow_model=turing_pattern_model(args.dataset, 128, 128)
+            reference_flow_model=turing_pattern_model(args.dataset, 128, 128),
+            use_bn=args.bn
         )
 
     trainer.train(epochs=args.epochs, batch_size=128)
