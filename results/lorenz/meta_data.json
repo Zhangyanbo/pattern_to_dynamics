@@ -8,10 +8,10 @@
         "weight_decay": 1e-05,
         "dim_hidden": 64,
         "device": "cuda",
-        "noise": 0.1,
+        "noise": 0.2,
         "num_kernels": 4,
         "non_kernel": false,
-        "energy_loss_weight": 1.0,
+        "energy_loss_weight": 0,
         "seed": 1,
         "num_experiments": 100
     }
