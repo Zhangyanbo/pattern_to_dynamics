@@ -177,8 +177,7 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
     inv_losses = []
     oth_losses = []
     energy_losses = []
-    t = 0.2
-    print(f"Alpha.sqrt(): {score_model.alpha_t(torch.tensor(t, device=device)).sqrt().item()}")
+    print(f"Alpha.sqrt(): {score_model.alpha_t(torch.tensor(noise, device=device)).sqrt().item()}")
 
     for epoch in tqdm(range(num_epochs)):
         acc_loss = 0
@@ -189,7 +188,7 @@ def train_dynamics(score_model, dataset, batch_size=2048, model='two_peaks', num
         for x in dataloader:
             x = x.to(device)
             optimizer.zero_grad()
-            div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, t, num_samples=num_samples)
+            div, s, v, div_term, oth_term = div_estimate(flow, score_model, x, t=noise, num_samples=num_samples)
             loss_energy = torch.mean(energy_loss(v))
             loss_inv = torch.mean(div ** 2)
             loss = loss_inv + energy_loss_weight * loss_energy
@@ -265,7 +264,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=1e-5)
     parser.add_argument('--dim_hidden', type=int, default=64)
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
-    parser.add_argument('--noise', type=float, default=0.1)
+    parser.add_argument('--noise', type=float, default=0.2)
     parser.add_argument('--num_kernels', '-k', type=int, default=4)
     parser.add_argument('--non_kernel', type=bool, default=False)
     parser.add_argument('--energy_loss_weight', '-e', type=float, default=0)
