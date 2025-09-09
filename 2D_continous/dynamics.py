@@ -72,7 +72,8 @@ class Trainer:
                 schedule:bool=False,
                 gaussian_weight=0.0,
                 symmetry_punalty:float=0.0,
-                warmup_steps=500
+                warmup_steps=500,
+                use_bn=False
                 ):
         self._check_flow_model(flow_model)
         self.flow_model = Wrapper2D(flow_model, shape).to(device)
@@ -95,6 +96,7 @@ class Trainer:
         self.use_wandb = use_wandb
         self.guassian_weight = gaussian_weight
         self.symmetry_punalty = symmetry_punalty
+        self.use_bn = use_bn
 
         self.dim = 1
         for s in shape:
@@ -107,14 +109,15 @@ class Trainer:
                 raise ValueError("ReLU activations don't support 2nd-order differentiation. Use SiLU or other differentiable activations instead.")
     
     def estimate(self, x):
+        # diffuse_time_t = torch.randint(1, self.diffuser.num_train_timesteps, (x.shape[0],), device=x.device)
         xt = self.diffuser.add_noise(x, torch.randn_like(x), self.diffuse_time_t)
         xt = xt.reshape(xt.shape[0], -1)
-        alpha = self.diffuser.add_noise(torch.ones(1), torch.zeros(1), self.diffuse_time_t).pow(2).item()
         return div_estimate(
                             self.flow_model, 
                             self.score_model, 
                             xt, 
                             num_samples=self.num_samples, 
+                            # x0=x.reshape(x.shape[0], -1)
                             )
     def global_loss(self, s, v):
         prod = torch.einsum('bn, bn -> b', s, v)
@@ -157,19 +160,136 @@ class Trainer:
         stable on x_0 since x_t is a noisy version of x_0.
         """
         x = x.reshape(x.shape[0], -1)
-        v_f = self.flow_model(x)
-        v_F = self.reference_flow_model(x)
+        x_f = self.diffuser.add_noise(x, torch.zeros_like(x), self.diffuse_time_t)
+        # x_f = x
+        v_f = self.flow_model(x_f)
+        v_F = self.reference_flow_model(self.dataset.denormalize(x))
+
         assert v_f.shape == v_F.shape
         assert len(v_f.shape) == 2
-        return F.cosine_similarity(v_f, v_F, dim=1).mean().item()
+        return F.cosine_similarity(v_f.reshape(-1), v_F.reshape(-1), dim=0).item()
+    
+    def _compute_loss(self, batch):
+        batch = batch.to(self.device)
+        output = self.estimate(batch)
+        v_avg_norm = output['v'].pow(2).sum(dim=-1).mean()
+        if self.use_bn:
+            v_avg_norm = v_avg_norm.detach()
+        loss_global = self.global_loss(output['score'], output['v']) / (v_avg_norm + 1e-8)
+        div1, div2 = output['div(pv)_1'], output['div(pv)_2'] # [B]
+
+        loss_div = (div1 * div2).mean() / (v_avg_norm + 1e-8)
+        loss_norm = (v_avg_norm / self.dim - 1).pow(2)
+        loss_v = output['v'].mean().pow(2) / (v_avg_norm / self.dim)
+
+        loss = loss_div
+        if self.symmetry_punalty > 0:
+            loss_symmetry = self.symmetry_loss(output['score'], output['v'])
+            loss += self.symmetry_punalty * loss_symmetry
+        
+        losses = {
+            'loss':loss,
+            'loss_div':loss_div,
+            'loss_global':loss_global,
+            'loss_norm':loss_norm,
+            'loss_v':loss_v,
+            'loss_symmetry':loss_symmetry if self.symmetry_punalty > 0 else torch.tensor(0.0, device=self.device),
+            'output': output
+        }
+        return losses
+    
+    def report(self, losses:dict, end='', **terms):
+        # basic information
+        output = losses['output']
+        v_norm = output['v'].pow(2).mean().sqrt().item()
+        v_avg_norm = output['v'].pow(2).sum(dim=-1).mean().item()
+        info = {
+            'loss'+end: losses['loss_div'].item(),
+            'loss_global'+end: losses['loss_global'].item(),
+            'loss_symmetry'+end: losses['loss_symmetry'].item(),
+            'v_avg'+end: output['v'].mean().item() / v_avg_norm,
+            'v_norm'+end: v_norm,
+            '|div(v)|'+end: output['div(v)'].pow(2).mean().sqrt().item() / v_avg_norm,
+            '|v@s|'+end: output['v@s'].pow(2).mean().sqrt().item() / v_avg_norm,
+        }
+
+        for k, v in terms.items():
+            info[k+end] = v
+        
+        return info
+    
+    def _train_epoch(self, epoch:int, total_epochs:int, dataloader, optimizer):
+        self.flow_model.train()
+        for i, batch in enumerate(tqdm(dataloader, desc=f"Training Epoch {epoch+1}/{total_epochs}")):
+            batch = batch.to(self.device)
+            losses = self._compute_loss(batch)
+
+            losses['loss'].backward()
+
+            if self.schedule:
+                self.scheduler.step()
+            
+            if (i + 1) % self.gradient_accumulation_steps == 0:
+                # average gradients
+                for param in self.flow_model.parameters():
+                    if param.grad is not None:
+                        param.grad /= self.gradient_accumulation_steps
+                # clip gradients
+                gradient_norm = torch.nn.utils.clip_grad_norm_(self.flow_model.parameters(), 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
+
+                info = self.report(
+                    losses, 
+                    gradient_norm=gradient_norm.item(), 
+                    lr=optimizer.param_groups[0]['lr'], 
+                    epoch=epoch + i / len(dataloader))
+                if self.use_wandb:
+                    wandb.log(info)
+
+    def _val_epoch(self, epoch, dataloader, optimizer):
+        infos = []
+        for i, batch in enumerate(tqdm(dataloader, desc=f"Validation Epoch {epoch+1}")):
+            batch = batch.to(self.device)
+            losses = self._compute_loss(batch)
+            # save memory
+            for k, v in losses.items():
+                if isinstance(v, torch.Tensor):
+                    losses[k] = v.detach()
+            if 'output' in losses:
+                for k, v in losses['output'].items():
+                    if isinstance(v, torch.Tensor):
+                        losses[k] = v.detach()
+            # clean cuda memory
+            torch.cuda.empty_cache()
+            if self.reference_flow_model is not None:
+                corr = self.compare_truth(batch)
+
+            optimizer.zero_grad()
+            info = self.report(
+                losses, 
+                end='_val',
+                corr=corr if self.reference_flow_model is not None else 0,
+                epoch=epoch+1)
+            infos.append(info)
+            del losses
+        
+        info = {}
+        for k in infos[0].keys():
+            info[k] = sum([inf[k] for inf in infos]) / len(infos)
+        if self.use_wandb:
+            wandb.log(info)
 
     def train(self, epochs=10, batch_size=32):
         self.setup_wandb()
-        optimizer = torch.optim.Adam(
+        optimizer = torch.optim.AdamW(
             self.flow_model.parameters(), 
             lr=self.lr, 
             weight_decay=self.weight_decay)
-        dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
+        trainset, valset = torch.utils.data.random_split(self.dataset, 
+                                        [int(len(self.dataset)*0.9), len(self.dataset)-int(len(self.dataset)*0.9)])
+        dataloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
+        valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
         if self.schedule:
             self.scheduler = get_cosine_schedule_with_warmup(
                 optimizer, 
@@ -177,68 +297,12 @@ class Trainer:
                 num_training_steps=epochs * len(dataloader))
         self.flow_model.train()
 
-        lf = nn.MSELoss()
+        self.lf = nn.MSELoss()
         step = 0
         
         for epoch in range(epochs):
-            i = 0
-            for batch in tqdm(dataloader, desc=f"Training Epoch {epoch+1}/{epochs}"):
-                step += 1
-                batch = batch.to(self.device)
-                if self.schedule:
-                    self.scheduler.step()
-                
-                output = self.estimate(batch)
-                v_avg_norm = output['v'].pow(2).sum(dim=-1).mean()
-                loss_global = self.global_loss(output['score'], output['v']) / (v_avg_norm + 1e-8)
-                div1, div2 = output['div(pv)_1'], output['div(pv)_2'] # [B]
-                # loss_div = (div1 * div2 / self.dim).mean()
-                # v.shape = [B, 2*H*W]
-                loss_div = (div1 * div2).mean() / (v_avg_norm + 1e-8)
-                loss_norm = (v_avg_norm / self.dim - 1).pow(2)
-                loss_v = output['v'].mean().pow(2) / (v_avg_norm / self.dim)
-
-                # reg = torch.mean(output['v@s'].pow(2) / (output['score'].norm(dim=1).pow(2) + 1e-6))
-                loss = loss_div
-                if self.symmetry_punalty > 0:
-                    loss_symmetry = self.symmetry_loss(output['score'], output['v'])
-                    loss += self.symmetry_punalty * loss_symmetry
-                loss.backward()
-
-                # Calculate correlation to the ground-truth
-                if self.reference_flow_model is not None:
-                    corr = self.compare_truth(batch)
-                
-                if (step + 1) % self.gradient_accumulation_steps == 0:
-                    # average gradients
-                    for param in self.flow_model.parameters():
-                        if param.grad is not None:
-                            param.grad /= self.gradient_accumulation_steps
-                    # clip gradients
-                    gradient_norm = torch.nn.utils.clip_grad_norm_(self.flow_model.parameters(), 1.0)
-                    optimizer.step()
-                    optimizer.zero_grad()
-                    step = 0
-                
-                    if self.use_wandb:
-                        info = {
-                                'loss': loss_div.item(), 
-                                'loss_global': loss_global.item(),
-                                'epoch': epoch+i/len(dataloader), 
-                                'lr': optimizer.param_groups[0]['lr'], 
-                                'loss_symmetry': loss_symmetry.item() if self.symmetry_punalty > 0 else 0,
-                                'v_avg': output['v'].mean().item(),
-                                'v_norm': output['v'].pow(2).mean().sqrt().item(),
-                                '|div(v)|': output['div(v)'].pow(2).mean().sqrt().item(),
-                                '|v@s|': output['v@s'].pow(2).mean().sqrt().item(),
-                                'gradient_norm': gradient_norm.item() if 'gradient_norm' in locals() else 0,
-                            }
-                        if self.reference_flow_model is not None:
-                            info['corr'] = corr
-                        wandb.log(info)
-                i += 1
-            
-            print(f'Epoch {epoch+1}/{epochs}, Loss: {loss.item()}')
+            self._train_epoch(epoch, epochs, dataloader, optimizer)
+            self._val_epoch(epoch, valloader, optimizer)
         
         if self.use_wandb:
             wandb.finish()
