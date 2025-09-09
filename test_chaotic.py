@@ -113,17 +113,17 @@ def save_results(exponents, exponents_normalized, data):
     import pickle
     import json
     
-    path = './results/lorenz/lyapunov_exponent.json'
+    path = './results/lorenz/lyapunov/lyapunov_exponent.json'
     with open(path, 'w') as f:
         json.dump({'exponents': exponents, 'exponents_normalized': exponents_normalized}, f, indent=4)
     
-    path = './results/lorenz/lyapunov_exponent.pkl'
+    path = './results/lorenz/lyapunov/lyapunov_exponent.pkl'
     with open(path, 'wb') as f:
         pickle.dump({'exponents': exponents, 'exponents_normalized': exponents_normalized, 'data': data}, f)
 
 def save_meta_data(args):
     import json
-    path = './results/lorenz/lyapunov_meta_data.json'
+    path = './results/lorenz/lyapunov/lyapunov_meta_data.json'
     with open(path, 'w') as f:
         json.dump(vars(args), f, indent=4)
 

@@ -428,7 +428,7 @@ if __name__ == '__main__':
     create_multi_dataset_plot(ax=axs[0])
     axs[0].set_title('(A) 2d systems')
 
-    results = pickle.load(open('./results/lorenz/lyapunov_exponent.pkl', 'rb'))
+    results = pickle.load(open('./results/lorenz/lyapunov/lyapunov_exponent.pkl', 'rb'))
     idx = 61
     score_model, flow_model, dataset = load_trained_model('lorenz', id=idx)
     fig = plot_lorenz_combined(results, dataset, idx, ax=axs[1], wspace=0.2, hspace=0.1)
