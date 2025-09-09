@@ -51,6 +51,13 @@ class Diffusion(nn.Module):
         xt = alpha_t.sqrt() * x + (1 - alpha_t).sqrt() * eps
         return xt, eps
     
+    def predict_x0(self, x, t:float):
+        T = (t * (self.num_steps - 1)).long()
+        alpha_T = self.alpha(T)
+        with torch.no_grad():
+            eps_pred = self.eps_predictor(x, t.unsqueeze(-1))
+        return (x - (1 - alpha_T).sqrt() * eps_pred) / alpha_T.sqrt()
+
     def sample(self, num_sample):
         x = torch.randn(num_sample, self.dim)
         # from t=self.num_steps to t=1, inverse diffusion process
