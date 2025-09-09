@@ -84,10 +84,16 @@ class LorenzDataset(Dataset):
     
     def normalize(self, time_series):
         """Normalize the time series to have zero mean and unit variance."""
-        mean = time_series.mean(dim=0)
-        std = time_series.std(dim=0)
-        return (time_series - mean) / std
-    
+        # if mean and std are not exist
+        if not hasattr(self, 'mean') or not hasattr(self, 'std'):
+            self.mean = time_series.mean(dim=0)
+            self.std = time_series.std(dim=0)
+        return (time_series - self.mean) / self.std
+
+    def denormalize(self, normalized_series):
+        """Denormalize the time series to recover the original values."""
+        return normalized_series * self.std + self.mean
+
     def __len__(self):
         """Return the number of points in the time series."""
         return len(self.time_series)
