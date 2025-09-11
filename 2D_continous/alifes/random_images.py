@@ -2,6 +2,8 @@ from PIL import Image, ImageColor, ImageChops
 from tqdm.auto import tqdm
 import random, math
 from typing import Tuple, Optional, List
+import numpy as np
+import torch
 
 
 class IconTiler:
@@ -20,6 +22,15 @@ class IconTiler:
         if isinstance(c, (tuple, list)) and len(c) == 3:
             return tuple(int(v) for v in c)
         return ImageColor.getrgb(str(c))
+    
+    def convert(self, img, output_type):
+        output_type = output_type.lower()
+        if output_type == "pil":
+            return img
+        elif output_type == "numpy":
+            return np.array(img).astype(np.float32) / 255.0
+        elif output_type == "torch" or output_type == "pt":
+            return torch.from_numpy(np.array(img)).float() / 255.0
 
     def generate(
         self,
@@ -33,6 +44,7 @@ class IconTiler:
         seed: Optional[int] = None,
         show_progress: bool = True,
         verbose: bool = False,
+        output_type: str = "PIL" # "PIL", "numpy", "torch" / "pt"
     ) -> Image.Image:
         """
         Generate an image with randomly placed non-overlapping icons.
@@ -46,6 +58,8 @@ class IconTiler:
             max_attempts_per_icon: Maximum placement attempts per icon before giving up
             seed: Random seed for reproducible results. If None, uses system random
             show_progress: Whether to display a progress bar during placement
+            verbose: Whether to print verbose output
+            output_type: Output type "PIL", "numpy", "torch" / "pt"
             
         Returns:
             canvas: PIL Image with placed icons. If unable to place all requested icons due to
@@ -140,17 +154,17 @@ class IconTiler:
                     y = int(math.floor(y0 + dy))
                     canvas.alpha_composite(rotated, (x, y))
 
-        return canvas, placed
+        return self.convert(canvas, output_type), placed
 
 
 if __name__ == "__main__":
-    tiler = IconTiler("anchor.png")  # Requires PNG with alpha channel
+    tiler = IconTiler("./images/anchor.png")  # Requires PNG with alpha channel
     img, placed = tiler.generate(
         count=80,
-        size=(1024, 1024),
-        icon_scale=0.2, 
+        size=(128, 128),
+        icon_scale=0.05, 
         bg_color="#FFFFFF",
         max_attempts_per_icon=2,
-        verbose=True
+        verbose=True,
     )
-    img.save("./tiled.png")
+    img.save("./images/tiled.png")
