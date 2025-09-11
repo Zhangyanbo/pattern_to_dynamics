@@ -263,11 +263,16 @@ class DiffusionTrainer:
             device=self.device
         ).cpu().clamp(-self.clip_sample_range, self.clip_sample_range)
 
-        # convert to a format suitable for logging
-        img = self._normalize_image(images[0])
-
+        num_channels = images.shape[1]
         idx = np.random.randint(0, len(self.dataset))
-        img_real = self._normalize_image(self.dataset[idx])
+
+        # convert to a format suitable for logging
+        if num_channels == 2:
+            img = self._normalize_image(images[0])
+            img_real = self._normalize_image(self.dataset[idx])
+        elif num_channels == 3:
+            img = self.dataset.denormalize(images[0])
+            img_real = self.dataset.denormalize(self.dataset[idx])
 
         # Make plot
         fig, ax = plt.subplots(1, 2, figsize=(10, 6))
