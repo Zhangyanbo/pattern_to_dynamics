@@ -4,13 +4,14 @@ import torch, random
 import numpy as np
 from diffusers import DDPMScheduler
 from circular import UNet2DModelWithPadding
+from alifes import RandomImagesDataset
 
 
-def get_unet_diffusion():
+def get_unet_diffusion(num_channels: int = 2):
     unet = UNet2DModelWithPadding(
         sample_size=128,
-        in_channels=2,
-        out_channels=2,
+        in_channels=num_channels,
+        out_channels=num_channels,
         down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D"),
         up_block_types  =("UpBlock2D",   "UpBlock2D",   "UpBlock2D"),
         block_out_channels=(16, 32, 64),
@@ -22,9 +23,15 @@ def get_unet_diffusion():
     return unet
 
 
-def train_diffusion(model_name:str, trainer_config:dict, prediction_type='epsilon'):
-    dataset = TuringPatternDataset.load(f'./turing_pattern/data/{model_name}_128x128.pt')
-    model = get_unet_diffusion()
+def train_diffusion(model_name:str, trainer_config:dict, prediction_type='epsilon', task='turing_pattern'):
+    if task == 'turing_pattern':
+        dataset = TuringPatternDataset.load(f'./{task}/data/{model_name}_128x128.pt')
+        model = get_unet_diffusion(num_channels=2)
+    elif task == 'alifes':
+        dataset = RandomImagesDataset.load(f'./{task}/data/{model_name}_128x128.pt')
+        model = get_unet_diffusion(num_channels=3)
+    else:
+        raise ValueError(f"Task {task} not supported")
     scheduler = DDPMScheduler(
         num_train_timesteps=100, 
         beta_start=0.0001, beta_end=0.1,
@@ -45,6 +52,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Train diffusion model on Turing patterns")
+    parser.add_argument("--task", type=str, default='turing_pattern', 
+                            help="Task type, will use ./<task>/data/<model>_128x128.pt")
     parser.add_argument("--model", "-m", type=str, default='waves', help="Model type")
     parser.add_argument("--epoch", "-n", type=int, default=30, help="Number of training epochs")
     parser.add_argument("--batch", '-b', type=int, default=64, help="Batch size for training")
@@ -67,11 +76,11 @@ if __name__ == "__main__":
         epochs=args.epoch, 
         batch_size=args.batch, 
         learning_rate=args.lr, 
-        task_name='turing_diffusion',
+        task_name=args.task+'_diffusion',
         weight_decay=0.01, 
         device='cuda', 
         validation_split=0.1, 
-        checkpoint_path=f'./turing_pattern/diffusion_models/{args.model}/', 
+        checkpoint_path=f'./{args.task}/diffusion_models/{args.model}/', 
         warmup_steps=args.warmup,
         use_wandb=args.wb,
         method=args.sampling,
@@ -79,4 +88,4 @@ if __name__ == "__main__":
         use_ema=args.ema
     )
 
-    train_diffusion(args.model, trainer_config, prediction_type=args.prediction_type)
+    train_diffusion(args.model, trainer_config, prediction_type=args.prediction_type, task=args.task)
