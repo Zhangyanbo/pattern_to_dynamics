@@ -264,6 +264,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_attempts_per_icon", type=int, default=2)
     args = parser.parse_args()
 
+    icon_name = os.path.splitext(os.path.basename(args.image_path))[0]
+
     dataset = RandomImagesDataset(
         num_samples=args.num_samples,
         num_icons=args.num_icons,
@@ -273,4 +275,4 @@ if __name__ == "__main__":
         icon_size=(args.icon_size, args.icon_size),
         max_attempts_per_icon=args.max_attempts_per_icon
     )
-    dataset.save(os.path.join("data", f"random_images_{args.size}x{args.size}.pt"))
+    dataset.save(os.path.join("data", f"{icon_name}_{args.size}x{args.size}.pt"))
