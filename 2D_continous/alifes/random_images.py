@@ -4,6 +4,8 @@ import random, math
 from typing import Tuple, Optional, List
 import numpy as np
 import torch
+from torch.utils.data import Dataset
+import os
 
 
 class IconTiler:
@@ -157,14 +159,118 @@ class IconTiler:
         return self.convert(canvas, output_type), placed
 
 
+class RandomImagesDataset(Dataset):
+    def __init__(
+        self,
+        num_samples: int,
+        num_icons: int,
+        image_path: str,
+        size: Tuple[int, int],
+        bg_color: str | Tuple[int, int, int] = "white",
+        *,
+        icon_size: Optional[Tuple[int, int]] = None,  # e.g. (64, 64)
+        icon_scale: Optional[float] = None,           # e.g. 0.5; mutually exclusive with icon_size (icon_size takes priority)
+        max_attempts_per_icon: int = 2,
+        show_progress: bool = True,
+        normalization: bool = False,
+        verbose: bool = False,
+        precomputed_data: torch.Tensor = None,
+    ):
+        self.num_samples = num_samples
+        self.image_path = image_path
+        self.size = size
+        self.bg_color = bg_color
+        self.num_icons = num_icons
+        self.icon_size = icon_size
+        self.icon_scale = icon_scale
+        self.max_attempts_per_icon = max_attempts_per_icon
+        self.show_progress = show_progress
+        self.verbose = verbose
+        self.normalization = normalization
+        self.arguments = dict(
+            num_samples=num_samples,
+            num_icons=num_icons,
+            image_path=image_path,
+            size=size,
+            bg_color=bg_color,
+            icon_size=icon_size,
+            icon_scale=icon_scale,
+            max_attempts_per_icon=max_attempts_per_icon,
+            show_progress=show_progress,
+            normalization=normalization,
+            verbose=verbose,
+        )
+
+        if precomputed_data is not None:
+            self.data = precomputed_data
+        else:
+            self.data = []
+            tiler = IconTiler(self.image_path)
+            for i in tqdm(range(self.num_samples), desc="Generating images"):
+                img, placed = tiler.generate(
+                    count=self.num_icons,
+                    size=self.size,
+                    icon_size=self.icon_size,
+                    icon_scale=self.icon_scale,
+                    bg_color=self.bg_color,
+                    max_attempts_per_icon=self.max_attempts_per_icon,
+                    show_progress=False,
+                    verbose=False,
+                    output_type="torch"
+                ) # img: (H, W, 4)
+                self.data.append(img.permute(2, 0, 1)[:3, ...])
+            self.data = self.normalize(torch.stack(self.data))
+
+    def save(self, filepath):
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        if not filepath.endswith('.pt'):
+            filepath += '.pt'
+        save_data = dict(
+            meta_data=self.arguments,
+            data=self.data
+        )
+        torch.save(save_data, filepath)
+
+    @classmethod
+    def load(cls, filepath):
+        save_data = torch.load(filepath)
+        return cls(precomputed_data=save_data['data'], **save_data['meta_data'])
+
+    def __len__(self):
+        return self.data.shape[0]
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
+    def normalize(self, x):
+        if self.normalization:
+            return (x - 0.5) * 2
+        return x
+
+    def denormalize(self, x):
+        if self.normalization:
+            return (x + 1) / 2
+        return x
+
 if __name__ == "__main__":
-    tiler = IconTiler("./images/anchor.png")  # Requires PNG with alpha channel
-    img, placed = tiler.generate(
-        count=80,
-        size=(128, 128),
-        icon_scale=0.05, 
-        bg_color="#FFFFFF",
-        max_attempts_per_icon=2,
-        verbose=True,
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_samples", type=int, default=64)
+    parser.add_argument("--num_icons", type=int, default=10)
+    parser.add_argument("--image_path", type=str, default="./images/icon.png")
+    parser.add_argument("--size", type=int, default=128)
+    parser.add_argument("--bg_color", type=str, default="white")
+    parser.add_argument("--icon_size", type=int, default=64)
+    parser.add_argument("--max_attempts_per_icon", type=int, default=2)
+    args = parser.parse_args()
+
+    dataset = RandomImagesDataset(
+        num_samples=args.num_samples,
+        num_icons=args.num_icons,
+        image_path=args.image_path,
+        size=(args.size, args.size),
+        bg_color=args.bg_color,
+        icon_size=(args.icon_size, args.icon_size),
+        max_attempts_per_icon=args.max_attempts_per_icon
     )
-    img.save("./images/tiled.png")
+    dataset.save(os.path.join("data", f"random_images_{args.size}x{args.size}.pt"))
