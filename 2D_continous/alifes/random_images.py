@@ -24,7 +24,7 @@ class IconTiler:
         if isinstance(c, (tuple, list)) and len(c) == 3:
             return tuple(int(v) for v in c)
         return ImageColor.getrgb(str(c))
-    
+
     def convert(self, img, output_type):
         output_type = output_type.lower()
         if output_type == "pil":
@@ -41,16 +41,18 @@ class IconTiler:
         bg_color: str | Tuple[int, int, int] = "white",
         *,
         icon_size: Optional[Tuple[int, int]] = None,  # e.g. (64, 64)
-        icon_scale: Optional[float] = None,           # e.g. 0.5; mutually exclusive with icon_size (icon_size takes priority)
+        icon_scale: Optional[
+            float
+        ] = None,  # e.g. 0.5; mutually exclusive with icon_size (icon_size takes priority)
         max_attempts_per_icon: int = 2000,
         seed: Optional[int] = None,
         show_progress: bool = True,
         verbose: bool = False,
-        output_type: str = "PIL" # "PIL", "numpy", "torch" / "pt"
+        output_type: str = "PIL",  # "PIL", "numpy", "torch" / "pt"
     ) -> Image.Image:
         """
         Generate an image with randomly placed non-overlapping icons.
-        
+
         Args:
             count: Number of icons to attempt to place on the canvas
             size: Canvas dimensions as (width, height) tuple
@@ -62,13 +64,13 @@ class IconTiler:
             show_progress: Whether to display a progress bar during placement
             verbose: Whether to print verbose output
             output_type: Output type "PIL", "numpy", "torch" / "pt"
-            
+
         Returns:
             canvas: PIL Image with placed icons. If unable to place all requested icons due to
                 space constraints or max attempts reached, returns partial results with a
                 warning message printed to console.
             placed: Number of icons placed on the canvas
-            
+
         Note:
             - Icons are rotated randomly 0-360 degrees with bicubic resampling
             - Placement uses pixel-perfect alpha channel collision detection
@@ -89,7 +91,9 @@ class IconTiler:
         elif icon_scale is not None:
             assert icon_scale > 0, "icon_scale must be > 0"
             ow, oh = self.icon.size
-            sw, sh = max(1, int(round(ow * icon_scale))), max(1, int(round(oh * icon_scale)))
+            sw, sh = max(1, int(round(ow * icon_scale))), max(
+                1, int(round(oh * icon_scale))
+            )
             base_icon = self.icon.resize((sw, sh), Image.BICUBIC)
 
         placements: List[Tuple[Image.Image, Tuple[float, float]]] = []
@@ -120,8 +124,8 @@ class IconTiler:
 
             # Build placement mask (consider wrapping: four translated copies)
             place_mask = Image.new("L", (W, H), 0)
-            base_x = (tlx % W)
-            base_y = (tly % H)
+            base_x = tlx % W
+            base_y = tly % H
             for dx in (0, -W):
                 for dy in (0, -H):
                     x = int(math.floor(base_x + dx))
@@ -145,8 +149,10 @@ class IconTiler:
 
         if placed < count:
             if verbose:
-                print(f"[IconTiler] Only placed {placed}/{count} icons. Total attempts {attempts}."
-                  f"Consider increasing canvas size, reducing count, or increasing max_attempts_per_icon.")
+                print(
+                    f"[IconTiler] Only placed {placed}/{count} icons. Total attempts {attempts}."
+                    f"Consider increasing canvas size, reducing count, or increasing max_attempts_per_icon."
+                )
 
         # Draw to canvas (with four wrapped copies)
         for rotated, (x0, y0) in placements:
@@ -169,7 +175,9 @@ class RandomImagesDataset(Dataset):
         bg_color: str | Tuple[int, int, int] = "white",
         *,
         icon_size: Optional[Tuple[int, int]] = None,  # e.g. (64, 64)
-        icon_scale: Optional[float] = None,           # e.g. 0.5; mutually exclusive with icon_size (icon_size takes priority)
+        icon_scale: Optional[
+            float
+        ] = None,  # e.g. 0.5; mutually exclusive with icon_size (icon_size takes priority)
         max_attempts_per_icon: int = 2,
         show_progress: bool = True,
         normalization: bool = False,
@@ -216,32 +224,29 @@ class RandomImagesDataset(Dataset):
                     max_attempts_per_icon=self.max_attempts_per_icon,
                     show_progress=False,
                     verbose=False,
-                    output_type="torch"
-                ) # img: (H, W, 4)
+                    output_type="torch",
+                )  # img: (H, W, 4)
                 self.data.append(img.permute(2, 0, 1)[:3, ...])
             self.data = self.normalize(torch.stack(self.data))
 
     def save(self, filepath):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        if not filepath.endswith('.pt'):
-            filepath += '.pt'
-        save_data = dict(
-            meta_data=self.arguments,
-            data=self.data
-        )
+        if not filepath.endswith(".pt"):
+            filepath += ".pt"
+        save_data = dict(meta_data=self.arguments, data=self.data)
         torch.save(save_data, filepath)
 
     @classmethod
     def load(cls, filepath):
         save_data = torch.load(filepath)
-        return cls(precomputed_data=save_data['data'], **save_data['meta_data'])
+        return cls(precomputed_data=save_data["data"], **save_data["meta_data"])
 
     def __len__(self):
         return self.data.shape[0]
-    
+
     def __getitem__(self, idx):
         return self.data[idx]
-    
+
     def normalize(self, x):
         if self.normalization:
             return (x - 0.5) * 2
@@ -252,8 +257,10 @@ class RandomImagesDataset(Dataset):
             return (x + 1) / 2
         return x
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_samples", type=int, default=64)
     parser.add_argument("--num_icons", type=int, default=10)
@@ -273,6 +280,6 @@ if __name__ == "__main__":
         size=(args.size, args.size),
         bg_color=args.bg_color,
         icon_size=(args.icon_size, args.icon_size),
-        max_attempts_per_icon=args.max_attempts_per_icon
+        max_attempts_per_icon=args.max_attempts_per_icon,
     )
     dataset.save(os.path.join("data", f"{icon_name}_{args.size}x{args.size}.pt"))
