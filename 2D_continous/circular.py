@@ -3,6 +3,7 @@ from typing import Any, Dict
 import torch.nn as nn
 from diffusers import UNet2DModel
 
+
 class UNet2DModelWithPadding(UNet2DModel):
     """
     Drop-in subclass that adds `padding_mode` as a first-class init parameter.
@@ -50,7 +51,9 @@ class UNet2DModelWithPadding(UNet2DModel):
         log = kwargs.pop("log_changed", False)
 
         # Pass the rest of original UNet2DModel kwargs through
-        return cls(*(), padding_mode=pm, only_when_effective=owe, log_changed=log, **cfg)
+        return cls(
+            *(), padding_mode=pm, only_when_effective=owe, log_changed=log, **cfg
+        )
 
     def _apply_padding_mode(self, *, verbose: bool = False):
         pm = getattr(self.config, "padding_mode", "zeros")
@@ -61,8 +64,16 @@ class UNet2DModelWithPadding(UNet2DModel):
 
         for name, m in self.named_modules():
             if isinstance(m, nn.Conv2d):
-                ks = m.kernel_size if isinstance(m.kernel_size, tuple) else (m.kernel_size, m.kernel_size)
-                pd = m.padding if isinstance(m.padding, tuple) else (m.padding, m.padding)
+                ks = (
+                    m.kernel_size
+                    if isinstance(m.kernel_size, tuple)
+                    else (m.kernel_size, m.kernel_size)
+                )
+                pd = (
+                    m.padding
+                    if isinstance(m.padding, tuple)
+                    else (m.padding, m.padding)
+                )
                 effective = (max(pd) > 0 and max(ks) > 1) if only else True
 
                 if effective and m.padding_mode != pm:
