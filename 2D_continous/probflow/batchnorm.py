@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class VPJBatchNorm(nn.BatchNorm1d):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         # Determine if we're in training mode and tracking running stats.
@@ -21,8 +22,12 @@ class VPJBatchNorm(nn.BatchNorm1d):
                 self.num_batches_tracked = self.num_batches_tracked + 1
                 exponential_average_factor = self.momentum
 
-                new_running_mean = (1 - exponential_average_factor) * self.running_mean + exponential_average_factor * batch_mean
-                new_running_var = (1 - exponential_average_factor) * self.running_var + exponential_average_factor * batch_var
+                new_running_mean = (
+                    1 - exponential_average_factor
+                ) * self.running_mean + exponential_average_factor * batch_mean
+                new_running_var = (
+                    1 - exponential_average_factor
+                ) * self.running_var + exponential_average_factor * batch_var
 
                 self.running_mean = new_running_mean.detach()
                 self.running_var = new_running_var.detach()
@@ -47,9 +52,13 @@ class VPJBatchNorm(nn.BatchNorm1d):
         if self.affine:
             # Reshape weight and bias for broadcasting.
             if input.dim() == 2:
-                normalized = normalized * self.weight.view(1, -1) + self.bias.view(1, -1)
+                normalized = normalized * self.weight.view(1, -1) + self.bias.view(
+                    1, -1
+                )
             elif input.dim() == 3:
-                normalized = normalized * self.weight.view(1, -1, 1) + self.bias.view(1, -1, 1)
+                normalized = normalized * self.weight.view(1, -1, 1) + self.bias.view(
+                    1, -1, 1
+                )
 
         return normalized
 
@@ -60,18 +69,18 @@ class VPJBatchNorm2d(nn.BatchNorm2d):
     1) Avoid in-place modifications to running_mean / running_var,
     2) Explicitly detach the computation graph from buffers - facilitates Jacobian-vector product.
     """
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        if input.dim() != 4:                       # (N, C, H, W)
-            raise ValueError(
-                f"VPJBatchNorm2d expects 4‑D input, got {input.dim()}‑D")
+        if input.dim() != 4:  # (N, C, H, W)
+            raise ValueError(f"VPJBatchNorm2d expects 4‑D input, got {input.dim()}‑D")
 
         # ----------------------------------------------
         # 1. Training mode: compute current batch statistics and update buffers
         # ----------------------------------------------
         if self.training and self.track_running_stats:
             # (N, C, H, W)  →  Average over N, H, W
-            batch_mean = input.mean([0, 2, 3])                     # [C]
-            batch_var  = input.var ([0, 2, 3], unbiased=False)     # [C]
+            batch_mean = input.mean([0, 2, 3])  # [C]
+            batch_var = input.var([0, 2, 3], unbiased=False)  # [C]
 
             with torch.no_grad():
                 self.num_batches_tracked = self.num_batches_tracked + 1
@@ -82,16 +91,16 @@ class VPJBatchNorm2d(nn.BatchNorm2d):
                     exponential_average_factor = self.momentum
 
                 new_running_mean = (
-                    1 - exponential_average_factor) * self.running_mean \
-                    + exponential_average_factor * batch_mean
+                    1 - exponential_average_factor
+                ) * self.running_mean + exponential_average_factor * batch_mean
                 new_running_var = (
-                    1 - exponential_average_factor) * self.running_var \
-                    + exponential_average_factor * batch_var
+                    1 - exponential_average_factor
+                ) * self.running_var + exponential_average_factor * batch_var
 
                 # **Do NOT** change these two lines to in-place operations (+= or *=),
                 # otherwise Autograd will issue warnings or even errors during JVP/VJP
                 self.running_mean = new_running_mean.detach()
-                self.running_var  = new_running_var.detach()
+                self.running_var = new_running_var.detach()
 
             mean, var = batch_mean, batch_var
         else:
@@ -100,12 +109,13 @@ class VPJBatchNorm2d(nn.BatchNorm2d):
         # ----------------------------------------------
         # 2. Normalize + (optional) Affine
         # ----------------------------------------------
-        mean = mean.view(1, -1, 1, 1)     # [1, C, 1, 1] for broadcasting
-        var  = var.view (1, -1, 1, 1)
+        mean = mean.view(1, -1, 1, 1)  # [1, C, 1, 1] for broadcasting
+        var = var.view(1, -1, 1, 1)
 
         normalized = (input - mean) / torch.sqrt(var + self.eps)
 
         if self.affine:
-            normalized = normalized * self.weight.view(1, -1, 1, 1) \
-                                       + self.bias.view  (1, -1, 1, 1)
+            normalized = normalized * self.weight.view(1, -1, 1, 1) + self.bias.view(
+                1, -1, 1, 1
+            )
         return normalized

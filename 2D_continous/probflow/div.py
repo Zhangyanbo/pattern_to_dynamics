@@ -2,6 +2,7 @@ import torch
 from torch import vmap
 from torch.func import jvp, vmap
 
+
 def hutchinson_estimate(model, x, num_samples: int = 64):
     z = torch.randn((num_samples, *x.shape), device=x.device)
 
@@ -22,7 +23,7 @@ def div_estimate(flow_model, score_model, x, num_samples=2, x0=None):
         flow_model: The flow model to compute the divergence for.
         score_model: The score model representing the probability density p(x).
         x: Input tensor for which to compute the divergence.
-    
+
     Outputs:
         A dictionary containing:
             - 'div(pv)_1': First term of the divergence estimate. Shape: [batch_size].
@@ -35,7 +36,7 @@ def div_estimate(flow_model, score_model, x, num_samples=2, x0=None):
     num_batch = x.shape[0]
     with torch.no_grad():
         s = score_model(x)
-    
+
     # Compute the divergence estimate twice to get unbiased estimates for both values and gradients
     if x0 is None:
         # If x0 is provided, we use it to compute the divergence
@@ -43,17 +44,20 @@ def div_estimate(flow_model, score_model, x, num_samples=2, x0=None):
         div_term_2, _ = hutchinson_estimate(flow_model, x, num_samples=num_samples // 2)
     else:
         # Otherwise, we use the diffused version of x, i.e., x_t
-        div_term_1, v = hutchinson_estimate(flow_model, x0, num_samples=num_samples // 2)
-        div_term_2, _ = hutchinson_estimate(flow_model, x0, num_samples=num_samples // 2)
-    oth_term = torch.einsum('nd, nd -> n', v, s)
+        div_term_1, v = hutchinson_estimate(
+            flow_model, x0, num_samples=num_samples // 2
+        )
+        div_term_2, _ = hutchinson_estimate(
+            flow_model, x0, num_samples=num_samples // 2
+        )
+    oth_term = torch.einsum("nd, nd -> n", v, s)
 
     output = {
-        'div(pv)_1': div_term_1 + oth_term,
-        'div(pv)_2': div_term_2 + oth_term,
-        'div(v)': div_term_1,
-        'v@s': oth_term,
-        'score': s,
-        'v': v,
+        "div(pv)_1": div_term_1 + oth_term,
+        "div(pv)_2": div_term_2 + oth_term,
+        "div(v)": div_term_1,
+        "v@s": oth_term,
+        "score": s,
+        "v": v,
     }
     return output
-
