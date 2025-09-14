@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from train_dynamics import load_score_model
 from turing_pattern import TuringPatternDataset
 from tqdm import tqdm
+from alifes import RandomImagesDataset
 
 
 def score_function(unet, scheduler, t):
@@ -19,24 +20,33 @@ def score_function(unet, scheduler, t):
 
     return score_model
 
-def load_models(name: str, use_bn: bool = False):
-    dataset = TuringPatternDataset.load(f'./turing_pattern/data/{name}_128x128.pt')
-    score_model, scheduler = load_score_model(name, device='cuda')
+def load_models(name: str, use_bn: bool = False, task:str='turing_pattern'):
+    if task == 'turing_pattern':
+        datacls = TuringPatternDataset
+    elif task == 'alifes':
+        datacls = RandomImagesDataset
+    dataset = datacls.load(f'./{task}/data/{name}_128x128.pt')
+    score_model, scheduler = load_score_model(name, device='cuda', task=task)
 
     return dataset, score_model, scheduler
 
-def training_free_flow(name:str, k=None, num_channel:int=2, t:int=10) -> callable:
-    dataset, score_model, scheduler = load_models(name)
+def training_free_flow(name:str, k=None, num_channel:int=2, t:int=10, task:str='turing_pattern') -> callable:
+    dataset, score_model, scheduler = load_models(name, task=task)
     if k is None:
         p = torch.randn(num_channel, num_channel)
         k = p - p.t()
         k = k.reshape(num_channel, num_channel, 1, 1)
         k = k / k.norm()
+        r=0
+    else:
+        r=k.shape[-1] // 2
     
     sf = score_function(score_model, scheduler, t=t)
     
     def flow_model(x):
         s = sf(x)
+        # circular padding
+        s = F.pad(s, (r, r, r, r), mode='circular')
         v = F.conv2d(s, k.to(s.device), padding=0)
         return v
     return flow_model, score_model, dataset, scheduler
