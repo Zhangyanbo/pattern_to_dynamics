@@ -8,6 +8,7 @@ from distributions import LorenzDataset, RingDataset, TwoPeaksDataset, TwoMoonsD
 
 ## Model
 
+
 class Diffusion(nn.Module):
     def __init__(self, num_steps=100, dim=3):
         super(Diffusion, self).__init__()
@@ -15,31 +16,31 @@ class Diffusion(nn.Module):
         self.num_steps = num_steps
         self.dim = dim
         self.mlp = nn.Sequential(
-            nn.Linear(dim+1, 64),
+            nn.Linear(dim + 1, 64),
             self.nonlinear,
             nn.Linear(64, 64),
             self.nonlinear,
             nn.Linear(64, dim),
         )
-        self.alpha = create_alpha(num_steps) # alpha_T --> 0, alpha_0 --> 1
-    
+        self.alpha = create_alpha(num_steps)  # alpha_T --> 0, alpha_0 --> 1
+
     def eps_predictor(self, x, t):
         input = torch.cat([x, t * 2 - 1], dim=-1)
         return self.mlp(input) + x
-    
-    def score(self, x, t:float=0.1):
+
+    def score(self, x, t: float = 0.1):
         if isinstance(t, float):
             batch_size = x.shape[0]
             t = torch.ones(batch_size).to(x.device) * t
         alpha_t = self.alpha_t(t)
         eps_pred = self.eps_predictor(x, t.unsqueeze(-1))
         return -eps_pred / (1 - alpha_t).sqrt()
-    
+
     def forward(self, x, t):
         xt, eps = self.diffuse(x, t)
         eps_pred = self.eps_predictor(xt, t.unsqueeze(-1))
         return eps, eps_pred
-    
+
     def alpha_t(self, t):
         t = (t * (self.num_steps - 1)).long()
         alpha_t = self.alpha(t)
@@ -50,8 +51,8 @@ class Diffusion(nn.Module):
         eps = torch.randn_like(x)
         xt = alpha_t.sqrt() * x + (1 - alpha_t).sqrt() * eps
         return xt, eps
-    
-    def predict_x0(self, x, t:float):
+
+    def predict_x0(self, x, t: float):
         T = (t * (self.num_steps - 1)).long()
         alpha_T = self.alpha(T)
         with torch.no_grad():
@@ -65,17 +66,18 @@ class Diffusion(nn.Module):
             t = torch.ones(num_sample) * (i / self.num_steps)
             T = (t * (self.num_steps - 1)).long()
             alpha_T = self.alpha(T)
-            alpha_T_1 = self.alpha(T-1)
+            alpha_T_1 = self.alpha(T - 1)
             with torch.no_grad():
                 eps_pred = self.eps_predictor(x, t.unsqueeze(-1))
-            x0_pred = (x - (1-alpha_T).sqrt() * eps_pred) / alpha_T.sqrt()
-            x = alpha_T_1.sqrt() * x0_pred + (1-alpha_T_1).sqrt() * eps_pred
+            x0_pred = (x - (1 - alpha_T).sqrt() * eps_pred) / alpha_T.sqrt()
+            x = alpha_T_1.sqrt() * x0_pred + (1 - alpha_T_1).sqrt() * eps_pred
         return x
 
 
-def train(dataset, num_epochs=500, device='none'):
+def train(dataset, num_epochs=500, device="none"):
     from tqdm import tqdm
-    if device == 'none':
+
+    if device == "none":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataloader = DataLoader(dataset, batch_size=2048, shuffle=True)
 
@@ -97,27 +99,35 @@ def train(dataset, num_epochs=500, device='none'):
             optimizer.step()
             acc_loss += loss.item()
         losses.append(acc_loss / len(dataloader))
-    
+
     model.eval()
 
     return model, losses
 
+
 def test_sample(model, dataset, args, num_sample=100):
     model.eval()
-    model.to('cpu')
+    model.to("cpu")
     sampled = model.sample(num_sample)
     if args.model == "lorenz":
-        marker = '-'
+        marker = "-"
     else:
-        marker = '.'
-    plt.plot(dataset.time_series[:, 0], dataset.time_series[:, 1], marker, alpha=0.5, label="True")
-    plt.plot(sampled[:, 0], sampled[:, 1], '.', alpha=0.5, label="Sampled")
+        marker = "."
+    plt.plot(
+        dataset.time_series[:, 0],
+        dataset.time_series[:, 1],
+        marker,
+        alpha=0.5,
+        label="True",
+    )
+    plt.plot(sampled[:, 0], sampled[:, 1], ".", alpha=0.5, label="Sampled")
     plt.title("Sampled")
     plt.xlabel("x")
     plt.ylabel("y")
     plt.legend()
     plt.savefig(f"./results/{args.model}/diffusion_sampled.png")
     plt.close()
+
 
 def plot_losses(losses, args):
     plt.plot(losses)
@@ -127,15 +137,18 @@ def plot_losses(losses, args):
     plt.savefig(f"./results/{args.model}/diffusion_loss.png")
     plt.close()
 
+
 def save_model(model, args):
-    torch.save(model.state_dict(), f'./results/{args.model}/diffusion_model.pth')
+    torch.save(model.state_dict(), f"./results/{args.model}/diffusion_model.pth")
     print(f"Model saved to ./results/{args.model}/diffusion_model.pth")
+
 
 if __name__ == "__main__":
     # set seed for reproducibility
     np.random.seed(0)
     torch.manual_seed(0)
     import argparse
+
     # set model: choose from lorenz, ring, two_peaks
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="lorenz")

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class VPJBatchNorm(nn.BatchNorm1d):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         # Determine if we're in training mode and tracking running stats.
@@ -21,8 +22,12 @@ class VPJBatchNorm(nn.BatchNorm1d):
                 self.num_batches_tracked = self.num_batches_tracked + 1
                 exponential_average_factor = self.momentum
 
-                new_running_mean = (1 - exponential_average_factor) * self.running_mean + exponential_average_factor * batch_mean
-                new_running_var = (1 - exponential_average_factor) * self.running_var + exponential_average_factor * batch_var
+                new_running_mean = (
+                    1 - exponential_average_factor
+                ) * self.running_mean + exponential_average_factor * batch_mean
+                new_running_var = (
+                    1 - exponential_average_factor
+                ) * self.running_var + exponential_average_factor * batch_var
 
                 self.running_mean = new_running_mean.detach()
                 self.running_var = new_running_var.detach()
@@ -47,9 +52,13 @@ class VPJBatchNorm(nn.BatchNorm1d):
         if self.affine:
             # Reshape weight and bias for broadcasting.
             if input.dim() == 2:
-                normalized = normalized * self.weight.view(1, -1) + self.bias.view(1, -1)
+                normalized = normalized * self.weight.view(1, -1) + self.bias.view(
+                    1, -1
+                )
             elif input.dim() == 3:
-                normalized = normalized * self.weight.view(1, -1, 1) + self.bias.view(1, -1, 1)
+                normalized = normalized * self.weight.view(1, -1, 1) + self.bias.view(
+                    1, -1, 1
+                )
 
         return normalized
 
@@ -57,12 +66,12 @@ class VPJBatchNorm(nn.BatchNorm1d):
 def integrate_rk4(vf, pos, dt):
     """
     Performs one step of the 4th-order Runge-Kutta integration method.
-    
+
     Args:
         vf: A function that takes a position tensor and returns a velocity vector.
         pos: The current position tensor.
         dt: The time step for integration (dt).
-        
+
     Returns:
         The new position after one integration step.
     """
@@ -75,7 +84,8 @@ def integrate_rk4(vf, pos, dt):
 
 def _hutchinson_estimate(vjp_func, x, z):
     vjp = vjp_func(z)[0]
-    return torch.einsum('nd, nd -> n', vjp, z)
+    return torch.einsum("nd, nd -> n", vjp, z)
+
 
 def hutchinson_estimate(model, x, num_samples=2):
     """
@@ -85,21 +95,22 @@ def hutchinson_estimate(model, x, num_samples=2):
         model: The model to compute the gradient for.
         x: Input tensor for which to compute the gradient.
         num_samples: Number of samples to use for the estimation.
-    
+
     Returns:
         ∇·model(x): The estimated divergence of the model at x.
         model(x): The model's output at x.
-    
+
     [NOTE] The x input should be a tensor of shape (batch_size, dim).
     When dealing with 2D or other higher-dimensional data, ensure
-    that the input is flattened appropriately before passing it to 
+    that the input is flattened appropriately before passing it to
     this function. Accordingly, the model should also be designed to handle
     such flattened inputs.
     """
-    output, vjp_func= torch.func.vjp(model, x)
+    output, vjp_func = torch.func.vjp(model, x)
     z = torch.randn((num_samples, *x.shape), device=x.device)
     est = torch.vmap(_hutchinson_estimate, (None, None, 0))(vjp_func, x, z)
     return est.mean(dim=0), output
+
 
 def div_estimate(flow_model, score_model, x, t, num_samples=2):
     """
@@ -112,13 +123,14 @@ def div_estimate(flow_model, score_model, x, t, num_samples=2):
     with torch.no_grad():
         s = score_model.score(xt, t)
     div_term, v = hutchinson_estimate(flow_model, xt, num_samples=num_samples)
-    oth_term = torch.einsum('nd, nd -> n', v, s)
+    oth_term = torch.einsum("nd, nd -> n", v, s)
     return div_term + oth_term, s, v, div_term, oth_term
+
 
 def create_alpha(num_steps):
     delta = 1e-3
     x = torch.linspace(0, torch.pi, num_steps)
-    alpha_t = (torch.cos(x) * (1-2*delta) + 1) / 2
+    alpha_t = (torch.cos(x) * (1 - 2 * delta) + 1) / 2
     # covert to embedding layer, set alpha as a buffer
     alpha = nn.Embedding(num_steps, 1)
     alpha.weight.data = alpha_t.reshape(-1, 1)
