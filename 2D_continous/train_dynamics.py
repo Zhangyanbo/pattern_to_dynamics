@@ -10,6 +10,7 @@ from dynamics import Trainer
 from turing_pattern import GrayScottSimulator, create_random_state, TuringPatternDataset
 from diffusers import UNet2DModel, DDPMScheduler
 from circular import UNet2DModelWithPadding
+from alifes import RandomImagesDataset
 
 
 def setup_seed(seed):
@@ -18,9 +19,9 @@ def setup_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
 
-def load_score_model(name:str, device:str='cuda', freeze:bool=True) -> nn.Module:
-    model = UNet2DModelWithPadding.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
-    scheduler = DDPMScheduler.from_pretrained(f"./turing_pattern/diffusion_models/{name}")
+def load_score_model(name:str, device:str='cuda', freeze:bool=True, task:str='turing_pattern') -> nn.Module:
+    model = UNet2DModelWithPadding.from_pretrained(f"./{task}/diffusion_models/{name}")
+    scheduler = DDPMScheduler.from_pretrained(f"./{task}/diffusion_models/{name}")
     model.eval()
     model.to(device)
 
