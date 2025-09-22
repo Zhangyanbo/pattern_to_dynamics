@@ -12,6 +12,8 @@ Beyond these, we also explore the design capability with our method on **Artific
 
 https://github.com/user-attachments/assets/2a7d1bd9-c07e-44af-9610-0ceaf0aab761
 
+> Background music generated with Sono AI.
+
 
 # Quick Start
 
