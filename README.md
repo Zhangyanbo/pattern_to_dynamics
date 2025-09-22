@@ -9,12 +9,6 @@ For **Lorenz system**, a dynamical system with chaotic behavior, the recovered d
 
 Beyond these, we also explore the design capability with our method on Artificial Lifes. With given manuual designed patterns, our method not only finds the dynamics / neural cellular automata that preserves the pattern, but also see collective behaviors.
 
-![](./media/simulation_sym.mp4)
-![](./media/simulation_dot.mp4)
-![](./media/simulation_dots.mp4)
-![](./media/simulation_taiji.mp4)
-
-
 # Running model
 ## Lorenz Systems
 
