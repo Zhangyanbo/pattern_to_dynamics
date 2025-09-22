@@ -1,5 +1,21 @@
-# Pattern to Dynamics
+# *Equilibrium flow*: From Snapshots to Dynamics
 
+How snapshot distribution constraints the possible dynamics? When we see a pattern, how confidently can we say "This is the underlying dynamics" without seeing the time evolution? How artificial life relates to real biological lifes? To answer these fundamental question, we propose ***Equilibrium flow***: by learning the distribution-preserving dynamics, we can find possible dynamics to preserve the given data distribution without time information.
+
+![cover](./media/cover.png)
+
+For **2D systems**, our method finds interesting non-trivial dynamics that preserve them.
+For **Lorenz system**, a dynamical system with chaotic behavior, the recovered dynamics also exhibit chaotic behavior with positive Lyapunov exponents. For **Turing patterns**, we propose a training-free method, which has limited solution space, but much faster. The resulted dynamics also highly aligned to the ground-truth.
+
+Beyond these, we also explore the design capability with our method on Artificial Lifes. With given manuual designed patterns, our method not only finds the dynamics / neural cellular automata that preserves the pattern, but also see collective behaviors.
+
+![](./media/simulation_sym.mp4)
+![](./media/simulation_dot.mp4)
+![](./media/simulation_dots.mp4)
+![](./media/simulation_taiji.mp4)
+
+
+# Running model
 ## Lorenz Systems
 
 ### Step 1: Train diffusion model
