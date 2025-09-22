@@ -136,3 +136,48 @@ def create_alpha(num_steps):
     alpha.weight.data = alpha_t.reshape(-1, 1)
     alpha.weight.requires_grad = False
     return alpha
+
+
+# MMD Functions
+
+
+def _sq_dists(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
+    """Pairwise squared Euclidean distances ||x_i - y_j||^2."""
+    X2 = (X * X).sum(dim=1, keepdim=True)  # (N,1)
+    Y2 = (Y * Y).sum(dim=1).unsqueeze(0)  # (1,M)
+    return (X2 + Y2 - 2.0 * (X @ Y.T)).clamp_min(0.0)
+
+
+def _rbf_kernel(X: torch.Tensor, Y: torch.Tensor, sigmas) -> torch.Tensor:
+    """Fixed RBF kernel(s). 'sigmas' is a float or an iterable of floats."""
+    if isinstance(sigmas, (int, float)):
+        sigmas = [float(sigmas)]
+    D2 = _sq_dists(X, Y)
+    K = 0.0
+    for s in sigmas:
+        s2 = float(s) ** 2
+        K = K + torch.exp(-D2 / (2.0 * s2 + 1e-12))
+    return K
+
+
+def mmd2_rbf_unbiased(X: torch.Tensor, Y: torch.Tensor, sigmas) -> torch.Tensor:
+    """
+    Unbiased MMD^2 between X∈R^{N×d} and Y∈R^{M×d} with fixed RBF kernel(s).
+    No adaptive bandwidth; you must provide 'sigmas' (float or list of floats).
+    """
+    assert X.dim() == 2 and Y.dim() == 2 and X.size(1) == Y.size(1)
+    n, m = X.size(0), Y.size(0)
+    if n < 2 or m < 2:
+        raise ValueError("Need at least 2 samples per set for the unbiased estimator.")
+
+    Kxx = _rbf_kernel(X, X, sigmas)
+    Kyy = _rbf_kernel(Y, Y, sigmas)
+    Kxy = _rbf_kernel(X, Y, sigmas)
+
+    # Unbiased estimate: remove diagonals in Kxx/Kyy
+    mmd2 = (
+        (Kxx.sum() - Kxx.diag().sum()) / (n * (n - 1))
+        + (Kyy.sum() - Kyy.diag().sum()) / (m * (m - 1))
+        - 2.0 * Kxy.mean()
+    )
+    return mmd2.clamp_min(0.0)
