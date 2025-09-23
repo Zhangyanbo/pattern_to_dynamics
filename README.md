@@ -57,3 +57,17 @@ v.load_state_dict(torch.load(f'./results/lorenz/models/dynamics_model_{model_id}
 ```
 
 This `v` model takes a `torch` tensor and return $v=dx/dt$.
+
+### Cite our paper
+
+```bibtex
+@misc{zhang2025equilibriumflowsnapshotsdynamics,
+      title={Equilibrium flow: From Snapshots to Dynamics}, 
+      author={Yanbo Zhang and Michael Levin},
+      year={2025},
+      eprint={2509.17990},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2509.17990}, 
+}
+```
