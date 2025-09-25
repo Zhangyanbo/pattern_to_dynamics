@@ -58,6 +58,43 @@ v.load_state_dict(torch.load(f'./results/lorenz/models/dynamics_model_{model_id}
 
 This `v` model takes a `torch` tensor and return $v=dx/dt$.
 
+# 2D Continous Experiments
+
+### Step 1: Generate Dataset
+
+For Turing patterns, you can generate dataset by running:
+
+```bash
+cd ./2D_continous/turing_pattern/
+python generate_dataset.py --preset life maze waves spirals --cuda --normalize
+```
+
+For Artificial Life, you can generate dataset by running:
+
+```bash
+cd ./2D_continous/alifes/
+python random_images.py --num_sample 8192 --image_path [your_image_path.png]
+```
+
+### Step 2: Train Diffusion Model
+
+```bash
+cd ./2D_continous/
+bash train_alifes_diffusion.sh
+bash train_turing_diffusion.sh
+```
+
+### Step 3 (optional): Train dynamic model
+
+```bash
+cd ./2D_continous/
+bash train_dynamics.sh
+```
+
+### Step 4: Test the learned model (training-free method)
+
+All the experiments can be found in `./2D_continous/training_free_turing.ipynb` and `training_free_alife.ipynb`.
+
 ### Cite our paper
 
 ```bibtex
